@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="TabbyBBMonitorのインストール、初期設定、使用方法を説明するユーザーマニュアルです。">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#0f6cbd">
+  <title>ユーザーマニュアル | TabbyBBMonitor</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230f6cbd'/%3E%3Cpath d='M9 8h12a3 3 0 0 1 3 3v2h1.5a1.5 1.5 0 0 1 1.5 1.5v3a1.5 1.5 0 0 1-1.5 1.5H24v2a3 3 0 0 1-3 3H9a3 3 0 0 1-3-3V11a3 3 0 0 1 3-3Z' fill='white'/%3E%3Cpath d='M10 12h7l-3 4h4l-6 6 2-5h-4Z' fill='%230f6cbd'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+  <script src="i18n.js" defer></script>
+</head>
+<body data-page="manual">
+  <a class="skip-link" href="#main" data-i18n="skipLink">本文へ移動</a>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="product-heading product-home-link" href="index.html" data-language-link="index.html" data-i18n-aria-label="overviewLinkLabel" aria-label="TabbyBBMonitorの概要へ">
+        <span class="eyebrow" data-i18n="manualLabel">ユーザーマニュアル</span>
+        <span class="product-name">TabbyBBMonitor</span>
+      </a>
+      <div class="language-switcher" role="group" data-i18n-aria-label="languageSwitcherLabel" aria-label="表示言語">
+        <button type="button" class="language-button" data-language="ja" aria-pressed="true">日本語</button>
+        <button type="button" class="language-button" data-language="en" aria-pressed="false">English</button>
+      </div>
+    </div>
+  </header>
+
+  <nav class="section-nav" data-i18n-aria-label="sectionNavLabel" aria-label="マニュアルの目次">
+    <div class="nav-inner">
+      <a href="#install"><span class="nav-number">01</span><span data-i18n="navInstall">インストール</span></a>
+      <a href="#setup"><span class="nav-number">02</span><span data-i18n="navSetup">初期設定</span></a>
+      <a href="#usage"><span class="nav-number">03</span><span data-i18n="navUsage">使用方法</span></a>
+    </div>
+  </nav>
+
+  <main id="main" tabindex="-1">
+    <section class="intro" aria-labelledby="page-title">
+      <p class="section-kicker" data-i18n="introKicker">はじめに</p>
+      <h1 id="page-title" data-i18n="pageTitle">Bluetooth機器の電池残量を、通知領域から確認する</h1>
+      <p class="intro-copy" data-i18n="introCopy">TabbyBBMonitorは、Windowsが取得したBluetooth機器の電池残量を監視し、状態の変化を通知する常駐アプリです。このページでは、インストールから日常の使い方までを順に案内します。</p>
+      <div class="requirement-strip">
+        <div>
+          <span class="requirement-label" data-i18n="supportedOsLabel">対応OS</span>
+          <strong data-i18n="supportedOsValue">Windows 10 バージョン2004以降 / Windows 11</strong>
+        </div>
+        <div>
+          <span class="requirement-label" data-i18n="targetDeviceLabel">対象機器</span>
+          <strong data-i18n="targetDeviceValue">Windowsとペアリング済みのBluetooth機器</strong>
+        </div>
+      </div>
+    </section>
+
+    <section id="install" class="manual-section" aria-labelledby="install-title">
+      <div class="section-heading">
+        <span class="section-index" aria-hidden="true">01</span>
+        <div>
+          <p class="section-kicker" data-i18n="installKicker">まずアプリを準備します</p>
+          <h2 id="install-title" data-i18n="installTitle">インストール手順</h2>
+        </div>
+      </div>
+
+      <ol class="steps">
+        <li>
+          <div class="step-content">
+            <h3 data-i18n="installStep1Title">Microsoft Storeの商品ページを開く</h3>
+            <p data-i18n="installStep1Body">下のボタンからTabbyBBMonitorの商品ページを開きます。</p>
+            <a class="button-link button-primary store-download-link" href="https://apps.microsoft.com/detail/REPLACE_WITH_STORE_PRODUCT_ID" data-store-link target="_blank" rel="noopener noreferrer" data-i18n="storeDownloadLink">Microsoft Storeで入手</a>
+          </div>
+        </li>
+        <li>
+          <div class="step-content">
+            <h3 data-i18n="installStep2Title">アプリをインストールする</h3>
+            <p data-i18n="installStep2Body">商品ページで「入手」または「インストール」を選択します。</p>
+          </div>
+        </li>
+        <li>
+          <div class="step-content">
+            <h3 data-i18n="installStep3Title">アプリを起動する</h3>
+            <p data-i18n="installStep3Body">インストール完了後に「開く」を選択すると、初期設定が始まります。</p>
+          </div>
+        </li>
+      </ol>
+
+      <aside class="callout callout-info">
+        <div>
+          <h3 data-i18n="installNoteTitle">追加のランタイムは不要です</h3>
+          <p data-i18n="installNoteBody">Microsoft Store版には動作に必要なファイルが含まれています。別途.NET Desktop Runtimeをインストールする必要はありません。</p>
+        </div>
+      </aside>
+    </section>
+
+    <section id="setup" class="manual-section" aria-labelledby="setup-title">
+      <div class="section-heading">
+        <span class="section-index" aria-hidden="true">02</span>
+        <div>
+          <p class="section-kicker" data-i18n="setupKicker">初回だけ行います</p>
+          <h2 id="setup-title" data-i18n="setupTitle">初期設定手順</h2>
+        </div>
+      </div>
+
+      <ol class="steps">
+        <li>
+          <div class="step-content">
+            <h3 data-i18n="setupStep1Title">自動検索が終わるまで待つ</h3>
+            <p data-i18n="setupStep1Body">初回起動では「ようこそ」画面が開き、ペアリング済みのBluetooth機器を自動的に検索します。「検出中...」の表示が変わるまで待ちます。</p>
+          </div>
+        </li>
+        <li>
+          <div class="step-content">
+            <h3 data-i18n="setupStep2Title">監視する機器を確認する</h3>
+            <p data-i18n="setupStep2Body">検出された機器を選択し、「このデバイスを監視する」が有効になっていることを確認します。監視しない機器はチェックを外せます。</p>
+          </div>
+        </li>
+        <li>
+          <div class="step-content">
+            <h3 data-i18n="setupStep3Title">必要に応じて自動起動を選ぶ</h3>
+            <p data-i18n="setupStep3Body">「サインイン時に自動起動する」は既定でオフです。Windowsへのサインイン後も自動で監視したい場合だけ有効にします。</p>
+          </div>
+        </li>
+        <li>
+          <div class="step-content">
+            <h3 data-i18n="setupStep4Title">監視を開始する</h3>
+            <p data-i18n="setupStep4Body">「監視を開始」を選択すると設定が保存され、アプリが通知領域に常駐します。</p>
+          </div>
+        </li>
+      </ol>
+
+      <div class="callout-grid">
+        <aside class="callout callout-warning">
+          <div>
+            <h3 data-i18n="noDeviceTitle">機器が見つからない場合</h3>
+            <p data-i18n="noDeviceBody">「Bluetooth設定を開く」からWindowsの設定を確認し、機器をペアリングしてください。機器が0台でも監視を開始でき、あとから「再検出」できます。</p>
+          </div>
+        </aside>
+        <aside class="callout callout-neutral">
+          <div>
+            <h3 data-i18n="cancelSetupTitle">設定を中断した場合</h3>
+            <p data-i18n="cancelSetupBody">初回画面で「キャンセル」を選ぶか画面を閉じると、設定を保存せずアプリを終了します。次回起動時に初期設定がもう一度表示されます。</p>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <section id="usage" class="manual-section" aria-labelledby="usage-title">
+      <div class="section-heading">
+        <span class="section-index" aria-hidden="true">03</span>
+        <div>
+          <p class="section-kicker" data-i18n="usageKicker">セットアップ後の操作</p>
+          <h2 id="usage-title" data-i18n="usageTitle">使用手順</h2>
+        </div>
+      </div>
+
+      <div class="usage-grid">
+        <article class="usage-card">
+          <span class="card-label" data-i18n="trayCardLabel">通知領域</span>
+          <h3 data-i18n="trayCardTitle">電池状態を確認する</h3>
+          <p data-i18n="trayCardBody">タスクバーの通知領域にあるアイコンが、監視中の電池状態を示します。Windows 11で見えない場合は、タスクバー右端の隠しアイコンを開いてください。</p>
+        </article>
+        <article class="usage-card">
+          <span class="card-label" data-i18n="menuCardLabel">右クリックメニュー</span>
+          <h3 data-i18n="menuCardTitle">必要な操作をすぐ実行する</h3>
+          <p data-i18n="menuCardBody">「今すぐ確認」で電池情報を更新できます。「設定...」で設定画面を開き、「終了」でアプリを終了します。アイコンのダブルクリックでも設定画面を開けます。</p>
+        </article>
+        <article class="usage-card">
+          <span class="card-label" data-i18n="deviceCardLabel">デバイスタブ</span>
+          <h3 data-i18n="deviceCardTitle">機器ごとに監視方法を調整する</h3>
+          <p data-i18n="deviceCardBody">監視のオン／オフ、通知のしきい値、機器の再検出を設定できます。選択したしきい値をすべての機器へ一括適用することもできます。</p>
+        </article>
+        <article class="usage-card">
+          <span class="card-label" data-i18n="generalCardLabel">全般タブ</span>
+          <h3 data-i18n="generalCardTitle">アプリ全体の動作を変更する</h3>
+          <p data-i18n="generalCardBody">確認間隔、通知、自動起動、表示言語、新しく検出する機器の初期しきい値を変更できます。確認間隔は10～3600秒で、既定は30秒です。</p>
+        </article>
+      </div>
+
+      <div class="threshold-panel">
+        <div class="threshold-heading">
+          <div>
+            <p class="section-kicker" data-i18n="thresholdKicker">既定の設定</p>
+            <h3 data-i18n="thresholdTitle">電池状態のしきい値</h3>
+          </div>
+          <p data-i18n="thresholdIntro">残量がしきい値をまたぐと通知します。しきい値は機器ごとに変更できます。</p>
+        </div>
+        <div class="table-scroll" tabindex="0" role="region" data-i18n-aria-label="thresholdTableRegionLabel" aria-label="電池状態のしきい値表">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col" data-i18n="tableStatus">状態</th>
+                <th scope="col" data-i18n="tableRange">既定の残量</th>
+                <th scope="col" data-i18n="tableMeaning">目安</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row"><span class="status-marker status-critical"></span><span data-i18n="statusCritical">危険</span></th>
+                <td data-i18n="rangeCritical">0～15%</td>
+                <td data-i18n="meaningCritical">すぐに充電してください</td>
+              </tr>
+              <tr>
+                <th scope="row"><span class="status-marker status-low"></span><span data-i18n="statusLow">低下</span></th>
+                <td data-i18n="rangeLow">16～35%</td>
+                <td data-i18n="meaningLow">充電を準備してください</td>
+              </tr>
+              <tr>
+                <th scope="row"><span class="status-marker status-caution"></span><span data-i18n="statusCaution">注意</span></th>
+                <td data-i18n="rangeCaution">36～70%</td>
+                <td data-i18n="meaningCaution">残量を確認してください</td>
+              </tr>
+              <tr>
+                <th scope="row"><span class="status-marker status-good"></span><span data-i18n="statusGood">良好</span></th>
+                <td data-i18n="rangeGood">71～100%</td>
+                <td data-i18n="meaningGood">十分な残量があります</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="threshold-note" data-i18n="thresholdNote">変更する場合は「危険 &lt; 低下 &lt; 注意」の順になるよう設定してください。</p>
+      </div>
+
+      <aside class="callout callout-important">
+        <div>
+          <h3 data-i18n="compatibilityTitle">対応機器について</h3>
+          <p data-i18n="compatibilityBody">監視できるのは、Windowsとペアリング済みで、機器またはドライバーが電池残量をWindowsへ公開しているBluetooth機器だけです。対応していても未接続時には「残量不明」になる場合があります。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <footer>
+    <p><span data-i18n="footerManual">ユーザーマニュアル</span> <span aria-hidden="true">·</span> TabbyBBMonitor</p>
+    <nav class="footer-links" data-i18n-aria-label="footerNavLabel" aria-label="関連ページ">
+      <a href="privacy.html" data-language-link="privacy.html" data-i18n="privacyLabel">プライバシーポリシー</a>
+      <a href="#main" data-i18n="backToTop">ページ上部へ戻る</a>
+    </nav>
+  </footer>
+</body>
+</html>

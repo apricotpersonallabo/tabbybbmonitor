@@ -1,0 +1,60 @@
+name: MSIX Tests
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: msix-tests-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package-test:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+          dotnet-quality: ga
+
+      - name: Build release configuration
+        shell: pwsh
+        run: dotnet build .\BatteryTray.slnx -c Release
+
+      - name: Run unit tests
+        shell: pwsh
+        run: dotnet test .\BatteryTray.slnx -c Release --no-build --no-restore
+
+      - name: Validate unsigned MSIX packages
+        if: github.event_name != 'workflow_dispatch'
+        shell: pwsh
+        run: .\tests\MSIX\Test-StorePackage.ps1
+
+      - name: Sign, sideload, and validate MSIX package
+        if: github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        run: .\tests\MSIX\Test-StorePackage.ps1 -GitHubActionsSideload -KeepArtifacts
+
+      - name: Upload signed test bundle and public certificate
+        if: github.event_name == 'workflow_dispatch' && success()
+        uses: actions/upload-artifact@v7
+        with:
+          name: BatteryTray-MSIX-Test-${{ github.run_number }}
+          path: |
+            artifacts/store/65000.*/*.msixbundle
+            artifacts/store/65000.*/*.cer
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0

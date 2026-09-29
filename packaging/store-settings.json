@@ -1,0 +1,8 @@
+{
+  "IdentityName": "Apricotpersonallabo.TabbyBBMonitor",
+  "Publisher": "CN=2C0911DC-253A-47FA-91AB-9C76D55A05EF",
+  "PublisherDisplayName": "Apricot personal labo",
+  "DisplayName": "TabbyBBMonitor",
+  "Version": "1.0.0.0",
+  "Architectures": [ "x64", "arm64" ]
+}

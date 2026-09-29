@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="TabbyBBMonitorの機能と対応環境を紹介する概要ページです。">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#0f6cbd">
+  <title>概要 | TabbyBBMonitor</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230f6cbd'/%3E%3Cpath d='M9 8h12a3 3 0 0 1 3 3v2h1.5a1.5 1.5 0 0 1 1.5 1.5v3a1.5 1.5 0 0 1-1.5 1.5H24v2a3 3 0 0 1-3 3H9a3 3 0 0 1-3-3V11a3 3 0 0 1 3-3Z' fill='white'/%3E%3Cpath d='M10 12h7l-3 4h4l-6 6 2-5h-4Z' fill='%230f6cbd'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+  <script src="i18n.js" defer></script>
+</head>
+<body class="overview-page" data-page="overview">
+  <a class="skip-link" href="#main" data-i18n="skipLink">本文へ移動</a>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <div class="product-heading">
+        <span class="eyebrow" data-i18n="overviewLabel">製品概要</span>
+        <span class="product-name">TabbyBBMonitor</span>
+      </div>
+      <div class="language-switcher" role="group" data-i18n-aria-label="languageSwitcherLabel" aria-label="表示言語">
+        <button type="button" class="language-button" data-language="ja" aria-pressed="true">日本語</button>
+        <button type="button" class="language-button" data-language="en" aria-pressed="false">English</button>
+      </div>
+    </div>
+  </header>
+
+  <nav class="section-nav" data-i18n-aria-label="overviewNavLabel" aria-label="概要ページの目次">
+    <div class="nav-inner">
+      <a href="#overview"><span class="nav-number">01</span><span data-i18n="overviewNav">概要</span></a>
+      <a href="#features"><span class="nav-number">02</span><span data-i18n="featuresNav">主な機能</span></a>
+      <a href="#workflow"><span class="nav-number">03</span><span data-i18n="workflowNav">使い始める</span></a>
+      <a href="manual.html" data-language-link="manual.html"><span class="nav-number">↗</span><span data-i18n="manualNav">マニュアル</span></a>
+    </div>
+  </nav>
+
+  <main id="main" tabindex="-1">
+    <section id="overview" class="overview-hero" aria-labelledby="overview-title">
+      <div class="overview-hero-copy">
+        <p class="section-kicker" data-i18n="overviewKicker">Windows向け通知領域アプリ</p>
+        <h1 id="overview-title" data-i18n="overviewTitle">Bluetooth機器の電池切れを、早めに気づけるように</h1>
+        <p class="intro-copy" data-i18n="overviewCopy">TabbyBBMonitorは、Windowsが取得した機器の電池残量を定期的に確認します。状態は通知領域のアイコンで確認でき、設定したしきい値をまたぐと通知を受け取れます。</p>
+        <div class="hero-actions">
+          <a class="button-link button-primary" href="https://apps.microsoft.com/detail/REPLACE_WITH_STORE_PRODUCT_ID" data-store-link target="_blank" rel="noopener noreferrer" data-i18n="storeDownloadLink">Microsoft Storeで入手</a>
+          <a class="button-link button-secondary" href="manual.html" data-language-link="manual.html" data-i18n="openManual">ユーザーマニュアルを開く</a>
+        </div>
+      </div>
+
+      <aside class="status-summary" data-i18n-aria-label="statusSummaryLabel" aria-label="電池状態の表示例">
+        <div class="status-summary-header">
+          <span data-i18n="statusSummaryTitle">電池状態</span>
+          <strong>68%</strong>
+        </div>
+        <div class="battery-meter" aria-hidden="true"><span></span></div>
+        <div class="status-current">
+          <span class="status-marker status-caution"></span>
+          <strong data-i18n="statusCaution">注意</strong>
+          <span data-i18n="statusExampleDevice">Bluetooth機器</span>
+        </div>
+        <p data-i18n="statusSummaryBody">機器ごとの状態を、通知領域からすぐ確認できます。</p>
+      </aside>
+    </section>
+
+    <section class="quick-facts" data-i18n-aria-label="quickFactsLabel" aria-label="主な仕様">
+      <div>
+        <span data-i18n="factIntervalLabel">確認間隔</span>
+        <strong data-i18n="factIntervalValue">既定30秒</strong>
+      </div>
+      <div>
+        <span data-i18n="factThresholdLabel">通知しきい値</span>
+        <strong data-i18n="factThresholdValue">機器ごとに3段階</strong>
+      </div>
+      <div>
+        <span data-i18n="factStartupLabel">自動起動</span>
+        <strong data-i18n="factStartupValue">必要な場合のみ有効化</strong>
+      </div>
+    </section>
+
+    <section id="features" class="manual-section overview-section" aria-labelledby="features-title">
+      <div class="section-heading">
+        <span class="section-index" aria-hidden="true">02</span>
+        <div>
+          <p class="section-kicker" data-i18n="featuresKicker">日常の確認をシンプルに</p>
+          <h2 id="features-title" data-i18n="featuresTitle">主な機能</h2>
+        </div>
+      </div>
+
+      <div class="feature-grid">
+        <article class="feature-card">
+          <span class="feature-number">01</span>
+          <h3 data-i18n="featureTrayTitle">通知領域で状態を確認</h3>
+          <p data-i18n="featureTrayBody">アプリを開いたままにせず、電池状態をアイコンと右クリックメニューから確認できます。</p>
+        </article>
+        <article class="feature-card">
+          <span class="feature-number">02</span>
+          <h3 data-i18n="featureNotificationTitle">しきい値をまたいだら通知</h3>
+          <p data-i18n="featureNotificationBody">危険・低下・注意のしきい値を設定し、状態が変化したときにWindowsの通知を表示します。</p>
+        </article>
+        <article class="feature-card">
+          <span class="feature-number">03</span>
+          <h3 data-i18n="featureDeviceTitle">機器ごとに個別設定</h3>
+          <p data-i18n="featureDeviceBody">監視のオン／オフやしきい値を機器ごとに調整し、必要な機器だけを監視できます。</p>
+        </article>
+        <article class="feature-card">
+          <span class="feature-number">04</span>
+          <h3 data-i18n="featureRefreshTitle">定期確認と手動更新</h3>
+          <p data-i18n="featureRefreshBody">10～3600秒の確認間隔を選べるほか、「今すぐ確認」で必要なときに更新できます。</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="workflow" class="manual-section overview-section" aria-labelledby="workflow-title">
+      <div class="section-heading">
+        <span class="section-index" aria-hidden="true">03</span>
+        <div>
+          <p class="section-kicker" data-i18n="workflowKicker">3つのステップ</p>
+          <h2 id="workflow-title" data-i18n="workflowTitle">使い始めるまで</h2>
+        </div>
+      </div>
+
+      <ol class="steps compact-steps">
+        <li>
+          <div class="step-content">
+            <h3 data-i18n="workflowStep1Title">機器をWindowsとペアリング</h3>
+            <p data-i18n="workflowStep1Body">WindowsのBluetooth設定で、監視したい機器をペアリングします。</p>
+          </div>
+        </li>
+        <li>
+          <div class="step-content">
+            <h3 data-i18n="workflowStep2Title">初回画面で監視対象を確認</h3>
+            <p data-i18n="workflowStep2Body">アプリを起動すると機器を自動検索します。監視する機器と自動起動の設定を確認します。</p>
+          </div>
+        </li>
+        <li>
+          <div class="step-content">
+            <h3 data-i18n="workflowStep3Title">通知領域から状態を確認</h3>
+            <p data-i18n="workflowStep3Body">「監視を開始」を選ぶと、アプリが通知領域に常駐して確認を始めます。</p>
+          </div>
+        </li>
+      </ol>
+
+      <div class="manual-cta">
+        <div>
+          <h3 data-i18n="manualCtaTitle">詳しい操作を確認する</h3>
+          <p data-i18n="manualCtaBody">インストール、初期設定、設定画面の使い方はユーザーマニュアルで確認できます。</p>
+        </div>
+        <a class="button-link button-primary" href="manual.html" data-language-link="manual.html" data-i18n="openManual">ユーザーマニュアルを開く</a>
+      </div>
+
+      <aside class="callout callout-important overview-compatibility">
+        <div>
+          <h3 data-i18n="overviewCompatibilityTitle">利用できるBluetooth機器</h3>
+          <p data-i18n="overviewCompatibilityBody">Windowsとペアリング済みで、機器またはドライバーが電池残量をWindowsへ公開している機器が対象です。機器によっては残量を取得できない場合があります。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <footer>
+    <p><span data-i18n="overviewLabel">製品概要</span> <span aria-hidden="true">·</span> TabbyBBMonitor</p>
+    <nav class="footer-links" data-i18n-aria-label="footerNavLabel" aria-label="関連ページ">
+      <a href="manual.html" data-language-link="manual.html" data-i18n="manualNav">マニュアル</a>
+      <a href="privacy.html" data-language-link="privacy.html" data-i18n="privacyLabel">プライバシーポリシー</a>
+    </nav>
+  </footer>
+</body>
+</html>

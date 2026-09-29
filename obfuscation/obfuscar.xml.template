@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Obfuscator>
+  <Var name="InPath" value="@@INPUT_PATH@@" />
+  <Var name="OutPath" value="@@OUTPUT_PATH@@" />
+  <Var name="LogFile" value="@@LOG_PATH@@" />
+  <Var name="KeepPublicApi" value="true" />
+  <Var name="HidePrivateApi" value="true" />
+  <Var name="HideStrings" value="true" />
+  <Var name="RenameProperties" value="true" />
+  <Var name="RenameEvents" value="true" />
+  <Var name="ReuseNames" value="false" />
+  <Var name="UseUnicodeNames" value="false" />
+  <Var name="RegenerateDebugInfo" value="false" />
+  <Var name="SkipGenerated" value="true" />
+
+  <Module file="@@INPUT_ASSEMBLY@@">
+    <!-- JSON設定の型名・メンバー名を維持し、アップデート後も既存設定を読めるようにする。 -->
+    <SkipType name="BatteryTray.DeviceSettings"
+              skipMethods="true"
+              skipFields="true"
+              skipProperties="true"
+              skipEvents="true"
+              skipStringHiding="true" />
+    <SkipType name="BatteryTray.AppSettings"
+              skipMethods="true"
+              skipFields="true"
+              skipProperties="true"
+              skipEvents="true"
+              skipStringHiding="true" />
+  </Module>
+</Obfuscator>

@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/BatteryTray/BatteryTray.csproj" />
+  <Project Path="tests/BatteryTray.Tests/BatteryTray.Tests.csproj" />
+</Solution>
