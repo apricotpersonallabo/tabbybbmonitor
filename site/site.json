@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "defaultLanguage": "ja",
+  "product": {
+    "name": "TabbyBBMonitor",
+    "tagline": "Bluetooth機器の電池切れを、早めに気づけるように",
+    "description": "TabbyBBMonitorは、Windowsが取得したBluetooth機器の電池残量を監視し、通知領域で状態を確認できるWindowsアプリです。"
+  },
+  "repository": {
+    "url": "https://github.com/apricotpersonallabo/tabbybbmonitor",
+    "issues": "https://github.com/apricotpersonallabo/tabbybbmonitor/issues"
+  },
+  "theme": {
+    "primary": "#0f6cbd",
+    "accent": "#ffbf47"
+  },
+  "languages": [
+    "ja",
+    "en"
+  ],
+  "stores": {
+    "microsoft": "https://apps.microsoft.com/detail/9mzb7986z2rn"
+  },
+  "pages": [
+    {
+      "slug": "index",
+      "title": "概要",
+      "source": "content/index.md"
+    },
+    {
+      "slug": "manual",
+      "title": "マニュアル",
+      "source": "content/manual.md"
+    },
+    {
+      "slug": "privacy",
+      "title": "プライバシー",
+      "source": "content/privacy.md"
+    }
+  ]
+}
