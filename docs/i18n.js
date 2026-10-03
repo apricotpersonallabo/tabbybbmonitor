@@ -3,8 +3,7 @@
 
   const STORAGE_KEY = "battery-tray-docs-language";
   const SUPPORTED_LANGUAGES = new Set(["ja", "en"]);
-  // Partner Centerへの提出後、実際のMicrosoft Store商品ページURLへ置き換える。
-  const MICROSOFT_STORE_URL = "https://apps.microsoft.com/detail/REPLACE_WITH_STORE_PRODUCT_ID";
+  const MICROSOFT_STORE_URL = "https://apps.microsoft.com/detail/9mzb7986z2rn";
 
   const translations = {
     ja: {
