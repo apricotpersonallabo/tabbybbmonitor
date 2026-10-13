@@ -78,7 +78,14 @@ internal enum TextId
     StartupControlledByPolicy,
     StartupUnavailable,
     SettingsRecovered,
-    SettingsLoadFailed
+    SettingsLoadFailed,
+    ColumnBluetoothAddress,
+    HelpTab,
+    AppVersion,
+    SupportSite,
+    AutoStartup,
+    Enabled,
+    StartupNotSupported
 }
 
 internal static partial class I18n
@@ -163,7 +170,7 @@ internal static partial class I18n
                 throw new InvalidOperationException($"Translation table {language} has {values.Length} entries; expected {expected}.");
         }
 
-        var onboardingExpected = Enum.GetValues<TextId>().Length - expected;
+        var onboardingExpected = (int)TextId.SettingsLoadFailed + 1 - expected;
         foreach (var (language, values) in OnboardingTranslations)
         {
             if (values.Length != onboardingExpected)
@@ -180,6 +187,14 @@ internal static partial class I18n
 
     public static string Get(TextId id)
     {
+        if (id == TextId.StartupNotSupported)
+            return StartupUnsupportedText[CurrentLanguage];
+        if (id is TextId.AutoStartup or TextId.Enabled)
+            return StartupTranslations[CurrentLanguage][id == TextId.AutoStartup ? 0 : 1];
+        if (id == TextId.ColumnBluetoothAddress)
+            return BluetoothAddressColumnText[CurrentLanguage];
+        if (id is TextId.HelpTab or TextId.AppVersion or TextId.SupportSite)
+            return HelpTranslations[CurrentLanguage][(int)id - (int)TextId.HelpTab];
         var index = (int)id;
         var legacyCount = (int)TextId.SettingsError + 1;
         return index < legacyCount

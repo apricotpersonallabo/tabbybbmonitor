@@ -78,5 +78,29 @@ public sealed class SettingsStoreTests : IDisposable
 
     private SettingsStore CreateStore() => new(SettingsPath());
 
+    [Fact]
+    public void BluetoothAddressSurvivesSaveAndReload()
+    {
+        var settings = new AppSettings();
+        var device = settings.CreateDeviceSettings("mouse", "Mouse");
+        device.UpdateBluetoothAddress("aabbccddeeff");
+        settings.Devices.Add(device);
+        var store = CreateStore();
+        store.Save(settings);
+        Assert.Equal("AA:BB:CC:DD:EE:FF", Assert.Single(store.Load().Settings.Devices).BluetoothAddress);
+    }
+
+    [Fact]
+    public void LegacyDeviceWithoutAddressStillLoads()
+    {
+        Directory.CreateDirectory(_directory);
+        File.WriteAllText(SettingsPath(), """{"Devices":[{"DeviceId":"mouse","DisplayName":"Mouse","LowThreshold":40}]}""");
+        var result = CreateStore().Load();
+        Assert.Equal(SettingsLoadStatus.Loaded, result.Status);
+        var device = Assert.Single(result.Settings.Devices);
+        Assert.Null(device.BluetoothAddress);
+        Assert.Equal(40, device.LowThreshold);
+    }
+
     private string SettingsPath() => Path.Combine(_directory, "settings.json");
 }

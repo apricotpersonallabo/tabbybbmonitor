@@ -19,6 +19,7 @@ internal sealed class BluetoothBatteryProvider : IBluetoothBatteryProvider
         "System.Devices.Aep.IsConnected",
         "System.Devices.Aep.IsPresent",
         "System.Devices.Aep.AepId",
+        "System.Devices.Aep.DeviceAddress",
         "System.Devices.Aep.ProtocolId",
         BluetoothBatteryLevelProperty,
         "System.Devices.ContainerId",
@@ -36,8 +37,24 @@ internal sealed class BluetoothBatteryProvider : IBluetoothBatteryProvider
             () => FindInterfacesAsync(BluetoothDevice.GetDeviceSelector()),
             FindBluetoothDeviceNodesAsync
         };
-        var outcomes = await Task.WhenAll(queries.Select(RunQueryAsync));
+        // インターフェイスやPnPノードに接続プロパティがない場合は、
+        // 接続中の機器を列挙した結果とID／ContainerIdで照合する。
+        var connectedQueries = new Func<Task<IReadOnlyList<DeviceInformation>>>[]
+        {
+            () => FindInterfacesAsync(BluetoothLEDevice.GetDeviceSelectorFromConnectionStatus(BluetoothConnectionStatus.Connected)),
+            () => FindInterfacesAsync(BluetoothDevice.GetDeviceSelectorFromConnectionStatus(BluetoothConnectionStatus.Connected))
+        };
+        var discoveryTask = Task.WhenAll(queries.Select(RunQueryAsync));
+        var connectionTask = Task.WhenAll(connectedQueries.Select(RunQueryAsync));
+        await Task.WhenAll(discoveryTask, connectionTask);
+        var outcomes = await discoveryTask;
+        var connectedOutcomes = await connectionTask;
         cancellationToken.ThrowIfCancellationRequested();
+
+        var connectedIds = connectedOutcomes
+            .SelectMany(outcome => outcome.Devices)
+            .SelectMany(device => GetIdentityKeys(device.Id, device.Properties))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         var results = outcomes.SelectMany(outcome => outcome.Devices).ToArray();
         var errors = outcomes.Where(outcome => outcome.Error is not null).Select(outcome => outcome.Error!).ToArray();
@@ -46,7 +63,7 @@ internal sealed class BluetoothBatteryProvider : IBluetoothBatteryProvider
 
         return results
             .Where(device => !string.IsNullOrWhiteSpace(device.Name))
-            .Select(Map)
+            .Select(device => Map(device, connectedIds))
             .GroupBy(device => device.Id, StringComparer.OrdinalIgnoreCase)
             .Select(Merge)
             .OrderBy(device => device.Name, StringComparer.CurrentCultureIgnoreCase)
@@ -87,27 +104,44 @@ internal sealed class BluetoothBatteryProvider : IBluetoothBatteryProvider
         }
     }
 
-    private static BluetoothBatteryDevice Map(DeviceInformation device)
+    private static BluetoothBatteryDevice Map(DeviceInformation device, IReadOnlySet<string> connectedIds)
     {
         var level = ReadPercentage(device.Properties, BluetoothBatteryLevelProperty);
-        var isPhysicalDeviceNode = device.Kind == DeviceInformationKind.Device &&
-                                   IsPhysicalBluetoothDeviceId(device.Id);
-        var connected = isPhysicalDeviceNode
-            ? ReadBoolean(device.Properties, DeviceIsPresentProperty) ?? true
-            : ReadBoolean(device.Properties, "System.Devices.Aep.IsConnected")
-              ?? ReadBoolean(device.Properties, "System.Devices.InterfaceEnabled")
-              ?? ReadBoolean(device.Properties, "System.Devices.Aep.IsPresent")
-              ?? false;
+        var connected = ResolveConnection(device.Id, device.Properties, connectedIds);
         // AEP IDはデバイスインターフェイスとPnPノードの両方に現れるため、
         // ContainerIdより優先すると異なる列挙経路の同一機器を統合できる。
         var stableId = ReadString(device.Properties, "System.Devices.Aep.AepId")
                        ?? ReadString(device.Properties, "System.Devices.ContainerId")
                        ?? device.Id;
 
-        return new BluetoothBatteryDevice(stableId, device.Name.Trim(), level, connected);
+        return new BluetoothBatteryDevice(stableId, device.Name.Trim(), level, connected)
+        {
+            BluetoothAddress = ResolveBluetoothAddress(device.Id, device.Properties)
+        };
     }
 
-    private static BluetoothBatteryDevice Merge(IGrouping<string, BluetoothBatteryDevice> group)
+    internal static string? ResolveBluetoothAddress(string id, IReadOnlyDictionary<string, object> properties) =>
+        BluetoothAddress.Normalize(ReadString(properties, "System.Devices.Aep.DeviceAddress"))
+        ?? BluetoothAddress.FromDeviceId(id)
+        ?? BluetoothAddress.FromDeviceId(ReadString(properties, "System.Devices.Aep.AepId"));
+
+    internal static bool ResolveConnection(
+        string id, IReadOnlyDictionary<string, object> properties, IReadOnlySet<string> connectedIds) =>
+        // IsPresentやInterfaceEnabledは接続状態を示さない。
+        ReadBoolean(properties, "System.Devices.Aep.IsConnected")
+        ?? GetIdentityKeys(id, properties).Any(connectedIds.Contains);
+
+    internal static IEnumerable<string> GetIdentityKeys(string id, IReadOnlyDictionary<string, object> properties)
+    {
+        yield return id;
+        if (ReadString(properties, "System.Devices.Aep.AepId") is { } aepId)
+            yield return aepId;
+        if (ReadString(properties, "System.Devices.ContainerId") is { } containerId &&
+            Guid.TryParse(containerId, out var container) && container != Guid.Empty)
+            yield return container.ToString("D");
+    }
+
+    internal static BluetoothBatteryDevice Merge(IGrouping<string, BluetoothBatteryDevice> group)
     {
         var candidates = group.ToArray();
         var preferred = candidates
@@ -119,6 +153,9 @@ internal sealed class BluetoothBatteryProvider : IBluetoothBatteryProvider
         {
             BatteryLevel = candidates.Select(device => device.BatteryLevel).FirstOrDefault(level => level.HasValue),
             IsConnected = candidates.Any(device => device.IsConnected),
+            BluetoothAddress = candidates.OrderByDescending(device => device.IsConnected)
+                .Select(device => BluetoothAddress.Normalize(device.BluetoothAddress))
+                .FirstOrDefault(address => address is not null),
             ObservedAt = candidates.Max(device => device.ObservedAt)
         };
     }

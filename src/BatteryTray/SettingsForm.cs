@@ -2,7 +2,9 @@ namespace BatteryTray;
 
 internal sealed class SettingsForm : Form
 {
-    private readonly IBluetoothBatteryProvider _provider = new BluetoothBatteryProvider();
+    private readonly DeviceRefreshService _refreshService;
+    private readonly bool _ownsRefreshService;
+    private DeviceSnapshot? _refreshSnapshot;
     private readonly IStartupRegistration _startupRegistration;
     private readonly bool _isOnboarding;
     private readonly List<DeviceSettings> _devices;
@@ -44,8 +46,11 @@ internal sealed class SettingsForm : Form
         AppSettings settings,
         IReadOnlyList<BluetoothBatteryDevice> observedDevices,
         IStartupRegistration startupRegistration,
-        bool isOnboarding = false)
+        bool isOnboarding = false,
+        DeviceRefreshService? refreshService = null)
     {
+        _ownsRefreshService = refreshService is null;
+        _refreshService = refreshService ?? new DeviceRefreshService(new BluetoothBatteryProvider());
         _startupRegistration = startupRegistration;
         _isOnboarding = isOnboarding;
         Text = I18n.Get(TextId.AppName);
@@ -65,11 +70,14 @@ internal sealed class SettingsForm : Form
         ConfigureGrid();
         BuildLayout();
         RefreshGrid();
+        _refreshService.Changed += ApplyRefreshSnapshot;
+        if (_refreshService.Snapshot.IsRefreshing || _refreshService.Snapshot.HasResult || _refreshService.Snapshot.Error is not null)
+            ApplyRefreshSnapshot(_refreshService.Snapshot);
         Shown += async (_, _) =>
         {
+            var refresh = RefreshDevicesAsync();
             await LoadStartupStateAsync();
-            if (_isOnboarding)
-                await RediscoverAsync(showErrors: false);
+            await refresh;
         };
     }
 
@@ -82,9 +90,13 @@ internal sealed class SettingsForm : Form
             _observed[observed.Id] = observed;
             var configured = FindDevice(observed.Id);
             if (configured is null)
-                _devices.Add(settings.CreateDeviceSettings(observed.Id, observed.Name));
+            {
+                configured = settings.CreateDeviceSettings(observed.Id, observed.Name);
+                _devices.Add(configured);
+            }
             else
                 configured.DisplayName = observed.Name;
+            configured.UpdateBluetoothAddress(observed.BluetoothAddress);
         }
     }
 
@@ -132,11 +144,16 @@ internal sealed class SettingsForm : Form
 
         _grid.Columns.Add(new DataGridViewCheckBoxColumn
         {
-            Name = "Enabled", HeaderText = I18n.Get(TextId.ColumnMonitor), FillWeight = 13, MinimumWidth = 58
+            Name = "Enabled", HeaderText = I18n.Get(TextId.ColumnMonitor), FillWeight = 10, MinimumWidth = 58
         });
         _grid.Columns.Add(new DataGridViewTextBoxColumn
         {
-            Name = "Name", HeaderText = I18n.Get(TextId.ColumnDevice), ReadOnly = true, FillWeight = 52, MinimumWidth = 170
+            Name = "Name", HeaderText = I18n.Get(TextId.ColumnDevice), ReadOnly = true, FillWeight = 35, MinimumWidth = 140
+        });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn
+        {
+            Name = "BluetoothAddress", HeaderText = I18n.Get(TextId.ColumnBluetoothAddress), ReadOnly = true,
+            AutoSizeMode = DataGridViewAutoSizeColumnMode.AllCells, MinimumWidth = 160
         });
         _grid.Columns.Add(new DataGridViewTextBoxColumn
         {
@@ -177,6 +194,7 @@ internal sealed class SettingsForm : Form
         var tabs = new TabControl { Dock = DockStyle.Fill, Padding = new Point(16, 6) };
         tabs.TabPages.Add(BuildDevicesTab());
         tabs.TabPages.Add(BuildGeneralTab());
+        tabs.TabPages.Add(BuildHelpTab());
 
         var saveButton = new Button
         {
@@ -243,7 +261,7 @@ internal sealed class SettingsForm : Form
         _openBluetoothSettings.AutoSize = true;
         _openBluetoothSettings.Visible = false;
         _openBluetoothSettings.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        _openBluetoothSettings.Click += (_, _) => OpenSystemSettings("ms-settings:bluetooth");
+        _openBluetoothSettings.Click += (_, _) => OpenExternalLink("ms-settings:bluetooth");
 
         var layout = new TableLayoutPanel
         {
@@ -422,25 +440,56 @@ internal sealed class SettingsForm : Form
         return page;
     }
 
+    private TabPage BuildHelpTab()
+    {
+        var page = new TabPage(I18n.Get(TextId.HelpTab))
+        {
+            Name = "HelpTab", BackColor = Color.White, Padding = new Padding(28, 24, 28, 24), AutoScroll = true
+        };
+        var layout = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, RowCount = 3 };
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 230));
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        AddSectionTitle(layout, 0, I18n.Get(TextId.AppName));
+        AddFormRow(layout, 1, I18n.Get(TextId.AppVersion), new Label
+        {
+            Name = "AppVersion", Text = AppInfo.Version, AutoSize = true, Margin = new Padding(0, 8, 0, 8)
+        });
+        var link = new LinkLabel
+        {
+            Name = "SupportLink", Text = AppInfo.SupportUrl, AutoSize = true,
+            Margin = new Padding(0, 8, 0, 8), RightToLeft = RightToLeft.No
+        };
+        link.Links.Clear();
+        link.Links.Add(0, AppInfo.SupportUrl.Length, AppInfo.SupportUrl);
+        link.LinkClicked += (_, _) => OpenExternalLink(AppInfo.SupportUrl);
+        AddFormRow(layout, 2, I18n.Get(TextId.SupportSite), link);
+        page.Controls.Add(layout);
+        return page;
+    }
+
     private void ConfigureStartupControls()
     {
-        _startAtSignInLabel.Text = I18n.Get(TextId.StartAtSignIn);
+        _startAtSignInLabel.Text = I18n.Get(TextId.AutoStartup);
         _startAtSignInLabel.AutoSize = true;
         _startAtSignInLabel.MaximumSize = new Size(220, 0);
         _startAtSignInLabel.Margin = new Padding(0, 8, 12, 8);
-        _startAtSignInLabel.Visible = false;
+        _startAtSignInLabel.Visible = true;
 
         _startAtSignIn.AutoSize = true;
+        _startAtSignIn.Text = I18n.Get(TextId.Enabled);
+        _startAtSignIn.CheckAlign = ContentAlignment.MiddleLeft;
+        _startAtSignIn.TextAlign = ContentAlignment.MiddleLeft;
         _startAtSignIn.Enabled = false;
         _startAtSignIn.AccessibleName = I18n.Get(TextId.StartAtSignIn);
         _startupNote.AutoSize = true;
         _startupNote.ForeColor = SystemColors.GrayText;
         _startupNote.MaximumSize = new Size(520, 0);
+        _startupNote.Text = I18n.Get(TextId.Discovering);
         _startupPanel.AutoSize = true;
         _startupPanel.FlowDirection = FlowDirection.TopDown;
         _startupPanel.WrapContents = false;
         _startupPanel.Margin = new Padding(0, 4, 0, 4);
-        _startupPanel.Visible = false;
+        _startupPanel.Visible = true;
         _startupPanel.Controls.Add(_startAtSignIn);
         _startupPanel.Controls.Add(_startupNote);
     }
@@ -450,20 +499,22 @@ internal sealed class SettingsForm : Form
         selectDeviceId ??= SelectedDevice?.DeviceId;
         var filter = _searchBox.Text.Trim();
         var filtered = _devices
-            .Where(device => _showUnavailable.Checked || _observed.ContainsKey(device.DeviceId))
+            .Where(device => _showUnavailable.Checked || ConnectedObservation(device.DeviceId) is not null)
             .Where(device => filter.Length == 0 || device.DisplayName.Contains(filter, StringComparison.CurrentCultureIgnoreCase))
-            .OrderByDescending(device => _observed.ContainsKey(device.DeviceId))
+            .OrderByDescending(device => ConnectedObservation(device.DeviceId) is not null)
             .ThenBy(device => device.DisplayName, StringComparer.CurrentCultureIgnoreCase)
             .ToArray();
 
         _grid.Rows.Clear();
         foreach (var device in filtered)
         {
-            _observed.TryGetValue(device.DeviceId, out var observed);
+            var observed = ConnectedObservation(device.DeviceId);
             var band = device.Classify(observed?.BatteryLevel);
             var rowIndex = _grid.Rows.Add(
                 device.IsEnabled,
                 device.DisplayName,
+                BluetoothAddress.Normalize(_observed.GetValueOrDefault(device.DeviceId)?.BluetoothAddress)
+                    ?? BluetoothAddress.Normalize(device.BluetoothAddress) ?? "—",
                 observed?.BatteryLevel is int level ? $"{level}%" : "—",
                 observed is null ? I18n.Get(TextId.Unavailable) : BandText(band));
             var row = _grid.Rows[rowIndex];
@@ -474,6 +525,7 @@ internal sealed class SettingsForm : Form
         }
 
         _deviceCountLabel.Text = I18n.Format(TextId.DeviceCount, filtered.Length, _devices.Count);
+        UpdateRefreshStatus();
         if (_grid.SelectedRows.Count == 0 && _grid.Rows.Count > 0)
             _grid.Rows[0].Selected = true;
         LoadSelectedDevice();
@@ -481,6 +533,9 @@ internal sealed class SettingsForm : Form
 
     private DeviceSettings? SelectedDevice =>
         _grid.SelectedRows.Count == 0 ? null : _grid.SelectedRows[0].Tag as DeviceSettings;
+
+    private BluetoothBatteryDevice? ConnectedObservation(string id) =>
+        _observed.TryGetValue(id, out var observed) && observed.IsConnected ? observed : null;
 
     private void LoadSelectedDevice()
     {
@@ -497,7 +552,7 @@ internal sealed class SettingsForm : Form
                 return;
             }
 
-            _observed.TryGetValue(device.DeviceId, out var observed);
+            var observed = ConnectedObservation(device.DeviceId);
             var band = device.Classify(observed?.BatteryLevel);
             _detailName.Text = device.DisplayName;
             _detailStatus.Text = observed is null
@@ -544,47 +599,50 @@ internal sealed class SettingsForm : Form
         }
     }
 
-    private async Task RediscoverAsync(bool showErrors = true)
+    internal Task RefreshDevicesAsync() => RediscoverAsync(showErrors: false);
+
+    internal void ApplyRefreshSnapshot(DeviceSnapshot snapshot)
     {
-        _rediscoverButton.Enabled = false;
-        _rediscoverButton.Text = I18n.Get(TextId.Discovering);
+        if (IsDisposed || Disposing)
+            return;
+        _refreshSnapshot = snapshot;
+        _rediscoverButton.Enabled = !snapshot.IsRefreshing;
+        _rediscoverButton.Text = I18n.Get(snapshot.IsRefreshing ? TextId.Discovering : TextId.Rediscover);
+        if (!snapshot.IsRefreshing && snapshot.Error is null && snapshot.HasResult)
+        {
+            _observed.Clear();
+            MergeObserved(CurrentDefaults(), snapshot.Devices);
+            RefreshGrid();
+        }
+        else
+        {
+            _deviceCountLabel.Text = I18n.Format(TextId.DeviceCount, _grid.Rows.Count, _devices.Count);
+            UpdateRefreshStatus();
+        }
         if (_isOnboarding)
         {
-            _onboardingStatus.Text = I18n.Get(TextId.Discovering);
-            _openBluetoothSettings.Visible = false;
+            var connectedCount = snapshot.Devices.Count(device => device.IsConnected);
+            _onboardingStatus.Text = snapshot.IsRefreshing ? I18n.Get(TextId.Discovering)
+                : snapshot.Error is not null ? $"{I18n.Get(TextId.DiscoveryFailed)}: {snapshot.Error}"
+                : connectedCount == 0 ? I18n.Get(TextId.OnboardingNoDevicesHelp)
+                : I18n.Format(TextId.DeviceCount, connectedCount, snapshot.Devices.Count);
+            _openBluetoothSettings.Visible = !snapshot.IsRefreshing && (snapshot.Error is not null || connectedCount == 0);
         }
-        UseWaitCursor = true;
-        try
-        {
-            var found = await _provider.GetDevicesAsync(CancellationToken.None);
-            _observed.Clear();
-            var defaults = CurrentDefaults();
-            MergeObserved(defaults, found);
-            RefreshGrid();
-            if (_isOnboarding)
-            {
-                _onboardingStatus.Text = found.Count == 0
-                    ? I18n.Get(TextId.OnboardingNoDevicesHelp)
-                    : I18n.Format(TextId.DeviceCount, found.Count, found.Count);
-                _openBluetoothSettings.Visible = found.Count == 0;
-            }
-        }
-        catch (Exception exception)
-        {
-            if (_isOnboarding)
-            {
-                _onboardingStatus.Text = $"{I18n.Get(TextId.DiscoveryFailed)}: {exception.Message}";
-                _openBluetoothSettings.Visible = true;
-            }
-            if (showErrors)
-                MessageBox.Show(this, exception.Message, I18n.Get(TextId.DiscoveryFailed), MessageBoxButtons.OK, MessageBoxIcon.Warning);
-        }
-        finally
-        {
-            UseWaitCursor = false;
-            _rediscoverButton.Text = I18n.Get(TextId.Rediscover);
-            _rediscoverButton.Enabled = true;
-        }
+    }
+
+    private void UpdateRefreshStatus()
+    {
+        if (_refreshSnapshot?.IsRefreshing == true)
+            _deviceCountLabel.Text += $"  {I18n.Get(TextId.Discovering)}";
+        else if (_refreshSnapshot?.Error is not null)
+            _deviceCountLabel.Text += $"  {I18n.Get(TextId.FetchError)}: {_refreshSnapshot.Error}";
+    }
+
+    private async Task RediscoverAsync(bool showErrors = true)
+    {
+        var snapshot = await _refreshService.RefreshAsync();
+        if (!IsDisposed && !Disposing && showErrors && snapshot.Error is not null)
+            MessageBox.Show(this, snapshot.Error, I18n.Get(TextId.DiscoveryFailed), MessageBoxButtons.OK, MessageBoxIcon.Warning);
     }
 
     private void DeleteSelectedUnavailable()
@@ -678,7 +736,8 @@ internal sealed class SettingsForm : Form
     private async Task LoadStartupStateAsync()
     {
         var result = await _startupRegistration.GetStateAsync();
-        ApplyStartupState(result);
+        if (!IsDisposed && !Disposing)
+            ApplyStartupState(result);
     }
 
     private void ApplyStartupState(StartupRegistrationResult result)
@@ -687,18 +746,21 @@ internal sealed class SettingsForm : Form
         _initialStartupEnabled = result.IsEnabled;
         _startAtSignIn.Checked = result.IsEnabled;
         _startAtSignIn.Enabled = result.CanChange;
-        _startAtSignInLabel.Visible = _startupStateLoaded;
-        _startupPanel.Visible = _startupStateLoaded;
+        _startAtSignInLabel.Visible = true;
+        _startupPanel.Visible = true;
         _startupNote.Text = result.State switch
         {
             StartupRegistrationState.DisabledByUser => I18n.Get(TextId.StartupDisabledByUser),
             StartupRegistrationState.PolicyControlled => I18n.Get(TextId.StartupControlledByPolicy),
+            StartupRegistrationState.Unsupported => result.ErrorMessage is { Length: > 0 }
+                ? $"{I18n.Get(TextId.StartupUnavailable)} {result.ErrorMessage}"
+                : I18n.Get(TextId.StartupNotSupported),
             _ => string.Empty
         };
         _startupNote.Visible = _startupNote.Text.Length > 0;
     }
 
-    private static void OpenSystemSettings(string uri)
+    private static void OpenExternalLink(string uri)
     {
         try
         {
@@ -734,6 +796,9 @@ internal sealed class SettingsForm : Form
     {
         if (disposing)
         {
+            _refreshService.Changed -= ApplyRefreshSnapshot;
+            if (_ownsRefreshService)
+                _refreshService.Dispose();
             _iconPreview.Image?.Dispose();
             _windowIcon.Dispose();
         }

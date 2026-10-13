@@ -11,6 +11,7 @@ internal enum BatteryBand
 
 internal sealed record BluetoothBatteryDevice(string Id, string Name, int? BatteryLevel, bool IsConnected)
 {
+    public string? BluetoothAddress { get; init; }
     public DateTimeOffset ObservedAt { get; init; } = DateTimeOffset.Now;
 }
 
@@ -18,6 +19,7 @@ internal sealed class DeviceSettings
 {
     public string DeviceId { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
+    public string? BluetoothAddress { get; set; }
     public bool IsEnabled { get; set; } = true;
     public int CriticalThreshold { get; set; } = 15;
     public int LowThreshold { get; set; } = 35;
@@ -43,6 +45,15 @@ internal sealed class DeviceSettings
         CriticalThreshold < LowThreshold && LowThreshold < CautionThreshold;
 
     public DeviceSettings Clone() => (DeviceSettings)MemberwiseClone();
+
+    public bool UpdateBluetoothAddress(string? address)
+    {
+        var normalized = BatteryTray.BluetoothAddress.Normalize(address);
+        if (normalized is null || normalized == BluetoothAddress)
+            return false;
+        BluetoothAddress = normalized;
+        return true;
+    }
 }
 
 internal sealed class AppSettings

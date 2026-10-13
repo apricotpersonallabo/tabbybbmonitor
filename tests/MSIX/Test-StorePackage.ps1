@@ -228,7 +228,7 @@ function Test-MsixPackage {
     Assert-Equal 'App\BatteryTray.exe' $startupExtension.GetAttribute('Executable') "$Architecture startupTask executable"
     $startupTask = $startupExtension.SelectSingleNode('desktop:StartupTask', $namespaces)
     Assert-Equal 'BatteryTrayStartup' $startupTask.GetAttribute('TaskId') "$Architecture startupTask ID"
-    Assert-Equal 'false' $startupTask.GetAttribute('Enabled') "$Architecture startupTask is disabled by default"
+    Assert-Equal 'true' $startupTask.GetAttribute('Enabled') "$Architecture startupTask is enabled by default"
 
     $fullTrust = $manifest.SelectSingleNode("/f:Package/f:Capabilities/rescap:Capability[@Name='runFullTrust']", $namespaces)
     $bluetooth = $manifest.SelectSingleNode("/f:Package/f:Capabilities/f:DeviceCapability[@Name='bluetooth']", $namespaces)

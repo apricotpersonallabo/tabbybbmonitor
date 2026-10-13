@@ -5,10 +5,11 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly NotifyIcon _notifyIcon;
     private readonly System.Windows.Forms.Timer _timer = new();
     private readonly SettingsStore _store = new();
-    private readonly IBluetoothBatteryProvider _provider = new BluetoothBatteryProvider();
+    private readonly DeviceRefreshService _refreshService = new(new BluetoothBatteryProvider());
+    private readonly ContextMenuStrip _menu = new();
+    private readonly ToolStripSeparator _deviceSeparator = new();
+    private readonly TrayTooltipController _tooltip;
     private readonly IStartupRegistration _startupRegistration = new StartupRegistration();
-    private readonly SemaphoreSlim _refreshLock = new(1, 1);
-    private readonly CancellationTokenSource _cancellation = new();
     private readonly Dictionary<string, BatteryBand> _previousBands = new(StringComparer.OrdinalIgnoreCase);
     private readonly Control _dispatcher = new();
     private readonly RegisteredWaitHandle _activationRegistration;
@@ -20,18 +21,27 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private bool _hasCompletedInitialRefresh;
 
     private bool _isExiting;
+    private readonly bool _isStartupTask;
 
-    public TrayApplicationContext(SingleInstanceCoordinator instance)
+    public TrayApplicationContext(SingleInstanceCoordinator instance, bool isStartupTask = false)
     {
+        _isStartupTask = isStartupTask;
         _loadResult = _store.Load();
         _settings = _loadResult.Settings;
         I18n.SetLanguage(_settings.UiLanguage);
         _notifyIcon = new NotifyIcon
         {
             Visible = true,
-            Text = I18n.Get(TextId.AppName)
+            Text = string.Empty
         };
+        _tooltip = new TrayTooltipController(
+            () => _isExiting || _menu.Visible || _settingsForm is { IsDisposed: false },
+            () => TrayDeviceList.Create(_refreshService.Snapshot),
+            () => _ = RefreshAsync(showErrors: false));
+        _notifyIcon.MouseMove += (_, _) => _tooltip.ObserveMouse();
+        _notifyIcon.MouseDown += (_, _) => _tooltip.Dismiss();
         _notifyIcon.DoubleClick += (_, _) => ShowSettings();
+        _refreshService.Changed += SnapshotChanged;
 
         _timer.Tick += async (_, _) => await RefreshAsync(showErrors: false);
         ApplyInterval(start: false);
@@ -57,6 +67,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _timer.Start();
         ShowSettingsLoadWarning();
         _ = RefreshAsync(showErrors: true);
+        if (LaunchMode.ShouldShowSettings(_settings.OnboardingCompleted, _isStartupTask))
+            ShowSettings();
     }
 
     private void ActivateFromSecondaryInstance()
@@ -89,36 +101,28 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private async Task RefreshAsync(bool showErrors)
     {
-        if (!await _refreshLock.WaitAsync(0))
+        if (_isExiting)
             return;
-
-        try
+        var snapshot = await _refreshService.RefreshAsync();
+        if (!_isExiting && showErrors && snapshot.Error is not null)
         {
-            _devices = await _provider.GetDevicesAsync(_cancellation.Token);
+            _notifyIcon.ShowBalloonTip(5000, I18n.Get(TextId.BatteryInfoUnavailableTitle),
+                snapshot.Error, ToolTipIcon.Warning);
+        }
+    }
+
+    private void SnapshotChanged(DeviceSnapshot snapshot)
+    {
+        if (_isExiting)
+            return;
+        if (!snapshot.IsRefreshing && snapshot.Error is null && snapshot.HasResult)
+        {
+            _devices = snapshot.Devices;
             MergeDiscoveredDevices();
             EvaluateTransitions();
-            UpdatePresentation();
             _hasCompletedInitialRefresh = true;
         }
-        catch (OperationCanceledException) when (_cancellation.IsCancellationRequested)
-        {
-        }
-        catch (Exception exception)
-        {
-            BuildContextMenu(exception.Message);
-            if (showErrors)
-            {
-                _notifyIcon.ShowBalloonTip(
-                    5000,
-                    I18n.Get(TextId.BatteryInfoUnavailableTitle),
-                    exception.Message,
-                    ToolTipIcon.Warning);
-            }
-        }
-        finally
-        {
-            _refreshLock.Release();
-        }
+        UpdatePresentation();
     }
 
     private void MergeDiscoveredDevices()
@@ -136,11 +140,13 @@ internal sealed class TrayApplicationContext : ApplicationContext
                     .ToArray();
                 if (sameName.Length == 1)
                 {
-                    sameName[0].DeviceId = device.Id;
+                    configured = sameName[0];
+                    configured.DeviceId = device.Id;
                 }
                 else
                 {
-                    _settings.Devices.Add(_settings.CreateDeviceSettings(device.Id, device.Name));
+                    configured = _settings.CreateDeviceSettings(device.Id, device.Name);
+                    _settings.Devices.Add(configured);
                 }
                 changed = true;
             }
@@ -149,6 +155,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
                 configured.DisplayName = device.Name;
                 changed = true;
             }
+            changed |= configured.UpdateBluetoothAddress(device.BluetoothAddress);
         }
 
         if (changed)
@@ -194,53 +201,37 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private void UpdatePresentation()
     {
         BuildContextMenu();
+        _tooltip.Update();
     }
 
-    private void BuildContextMenu(string? error = null)
+    private void BuildContextMenu()
     {
-        var menu = new ContextMenuStrip
+        if (_notifyIcon.ContextMenuStrip is null)
         {
-            RightToLeft = I18n.IsRightToLeft ? RightToLeft.Yes : RightToLeft.No
-        };
-        if (error is not null)
-        {
-            menu.Items.Add(new ToolStripMenuItem(I18n.Get(TextId.FetchError)) { Enabled = false });
-        }
-        else if (_devices.Count == 0)
-        {
-            menu.Items.Add(new ToolStripMenuItem(I18n.Get(TextId.NoBluetoothDevices)) { Enabled = false });
-        }
-        else
-        {
-            foreach (var device in _devices)
+            _menu.Items.Add(_deviceSeparator);
+            var refresh = new ToolStripMenuItem { Name = "Refresh" };
+            refresh.Click += async (_, _) => await RefreshAsync(showErrors: true);
+            _menu.Items.Add(refresh);
+            var settings = new ToolStripMenuItem { Name = "Settings" };
+            settings.Click += (_, _) => ShowSettings();
+            _menu.Items.Add(settings);
+            _menu.Items.Add(new ToolStripSeparator());
+            var exit = new ToolStripMenuItem { Name = "Exit" };
+            exit.Click += (_, _) => ExitApplication();
+            _menu.Items.Add(exit);
+            _menu.Opening += (_, _) =>
             {
-                var configured = FindSettings(device.Id);
-                var suffix = device.BatteryLevel is int level ? $"{level}%" : I18n.Get(TextId.BatteryUnknown);
-                var item = new ToolStripMenuItem($"{device.Name}  {suffix}")
-                {
-                    Enabled = false,
-                    Checked = configured?.IsEnabled == true
-                };
-                menu.Items.Add(item);
-            }
+                _tooltip.Dismiss();
+                _ = RefreshAsync(showErrors: false);
+            };
+            _notifyIcon.ContextMenuStrip = _menu;
         }
-
-        menu.Items.Add(new ToolStripSeparator());
-        var refresh = new ToolStripMenuItem(I18n.Get(TextId.RefreshNow));
-        refresh.Click += async (_, _) => await RefreshAsync(showErrors: true);
-        menu.Items.Add(refresh);
-
-        var settings = new ToolStripMenuItem(I18n.Get(TextId.SettingsMenu));
-        settings.Click += (_, _) => ShowSettings();
-        menu.Items.Add(settings);
-        menu.Items.Add(new ToolStripSeparator());
-        var exit = new ToolStripMenuItem(I18n.Get(TextId.Exit));
-        exit.Click += (_, _) => ExitApplication();
-        menu.Items.Add(exit);
-
-        var oldMenu = _notifyIcon.ContextMenuStrip;
-        _notifyIcon.ContextMenuStrip = menu;
-        oldMenu?.Dispose();
+        _menu.RightToLeft = I18n.IsRightToLeft ? RightToLeft.Yes : RightToLeft.No;
+        _menu.Items["Refresh"]!.Text = I18n.Get(TextId.RefreshNow);
+        _menu.Items["Settings"]!.Text = I18n.Get(TextId.SettingsMenu);
+        _menu.Items["Exit"]!.Text = I18n.Get(TextId.Exit);
+        TrayDeviceList.UpdateMenu(_menu, _deviceSeparator, TrayDeviceList.Create(_refreshService.Snapshot),
+            id => FindSettings(id)?.IsEnabled == true);
     }
 
     private void ShowSettings(bool isOnboarding = false)
@@ -248,17 +239,20 @@ internal sealed class TrayApplicationContext : ApplicationContext
         if (_isExiting)
             return;
 
+        _tooltip.Dismiss();
+
         if (_settingsForm is { IsDisposed: false })
         {
             if (_settingsForm.WindowState == FormWindowState.Minimized)
                 _settingsForm.WindowState = FormWindowState.Normal;
             _settingsForm.Activate();
             _settingsForm.BringToFront();
+            _ = _settingsForm.RefreshDevicesAsync();
             return;
         }
 
         isOnboarding |= !_settings.OnboardingCompleted;
-        using var form = new SettingsForm(_settings, _devices, _startupRegistration, isOnboarding);
+        using var form = new SettingsForm(_settings, _devices, _startupRegistration, isOnboarding, _refreshService);
         _settingsForm = form;
         try
         {
@@ -271,7 +265,6 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
             _settings = form.Result;
             I18n.SetLanguage(_settings.UiLanguage);
-            _notifyIcon.Text = I18n.Get(TextId.AppName);
             _store.Save(_settings);
             ApplyInterval(start: true);
             _previousBands.Clear();
@@ -320,16 +313,17 @@ internal sealed class TrayApplicationContext : ApplicationContext
             return;
         _isExiting = true;
         Application.Idle -= InitialIdle;
-        _cancellation.Cancel();
+        _refreshService.Changed -= SnapshotChanged;
+        _refreshService.Dispose();
+        _tooltip.Dispose();
         _timer.Stop();
         _notifyIcon.Visible = false;
         _notifyIcon.Dispose();
+        _menu.Dispose();
         _currentIcon?.Dispose();
         _timer.Dispose();
         _activationRegistration.Unregister(null);
         _dispatcher.Dispose();
-        _cancellation.Dispose();
-        _refreshLock.Dispose();
         ExitThread();
     }
 }

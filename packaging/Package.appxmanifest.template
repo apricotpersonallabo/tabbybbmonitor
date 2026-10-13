@@ -68,7 +68,7 @@
           EntryPoint="Windows.FullTrustApplication">
           <desktop:StartupTask
             TaskId="BatteryTrayStartup"
-            Enabled="false"
+            Enabled="true"
             DisplayName="ms-resource:AppDisplayName" />
         </desktop:Extension>
       </Extensions>
