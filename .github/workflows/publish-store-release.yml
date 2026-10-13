@@ -1,0 +1,114 @@
+name: Publish Store Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-store-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+
+    steps:
+      - name: Check out selected commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Validate version and reject existing tag or release
+        id: version
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $settings = Get-Content -LiteralPath packaging/store-settings.json -Raw | ConvertFrom-Json
+          $text = [string]$settings.Version
+          $version = $null
+          if ($text -notmatch '^\d+\.\d+\.\d+\.0$' -or
+              -not [Version]::TryParse($text, [ref]$version) -or
+              $version.Major -lt 1 -or $version.Major -gt 65535 -or
+              $version.Minor -gt 65535 -or $version.Build -gt 65535 -or
+              $version.ToString(4) -ne $text) {
+            throw 'Version must have four numeric parts, end in .0, and satisfy MSIX version limits.'
+          }
+          $tag = "v$text"
+          $refs = & gh api "repos/$env:GH_REPO/git/matching-refs/tags/$tag"
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to check existing tags.' }
+          if (@($refs | ConvertFrom-Json | Where-Object ref -EQ "refs/tags/$tag").Count -gt 0) {
+            throw "Tag $tag already exists. Increment the version before publishing."
+          }
+          $releases = & gh api --paginate "repos/$env:GH_REPO/releases" --jq '.[].tag_name'
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to check existing releases.' }
+          if ($tag -in @($releases)) {
+            throw "Release $tag already exists, possibly as a draft. Existing releases are never overwritten."
+          }
+          "version=$text" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+          dotnet-quality: ga
+
+      - name: Build release configuration
+        run: dotnet build .\BatteryTray.slnx -c Release
+
+      - name: Run unit tests
+        run: dotnet test .\BatteryTray.slnx -c Release --no-build --no-restore
+
+      - name: Build obfuscated Store packages
+        run: .\scripts\Build-StorePackage.ps1 -Architectures x64,arm64
+
+      - name: Upload all packages and publish release
+        env:
+          STORE_VERSION: ${{ steps.version.outputs.version }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $PWD "artifacts/store/$env:STORE_VERSION"
+          $assets = @(
+            "BatteryTray_$($env:STORE_VERSION)_x64.msix",
+            "BatteryTray_$($env:STORE_VERSION)_arm64.msix",
+            "BatteryTray_$($env:STORE_VERSION).msixbundle",
+            "BatteryTray_$($env:STORE_VERSION).msixupload"
+          ) | ForEach-Object { Join-Path $root $_ }
+          foreach ($asset in $assets) {
+            if (-not (Test-Path -LiteralPath $asset -PathType Leaf) -or
+                (Get-Item -LiteralPath $asset).Length -eq 0) {
+              throw "Missing or empty release asset: $asset"
+            }
+          }
+          $body = Join-Path $env:RUNNER_TEMP 'store-release-notes.md'
+          @"
+          TabbyBBMonitor $env:STORE_VERSION
+
+          Built from commit: $env:GITHUB_SHA
+
+          - Partner Center submission: BatteryTray_$($env:STORE_VERSION).msixupload
+          - Combined x64/ARM64 package: BatteryTray_$($env:STORE_VERSION).msixbundle
+          - Individual packages: x64 and ARM64 .msix files
+
+          These are unsigned Microsoft Store submission packages. Microsoft Store signs them during distribution; they are not signed sideload installers.
+          "@ | Set-Content -LiteralPath $body -Encoding utf8
+          & gh release create $env:RELEASE_TAG --draft --target $env:GITHUB_SHA `
+            --title "TabbyBBMonitor $env:STORE_VERSION" --notes-file $body
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to create draft release.' }
+          & gh release upload $env:RELEASE_TAG @assets
+          if ($LASTEXITCODE -ne 0) { throw 'Asset upload failed. Release remains a draft.' }
+          & gh release edit $env:RELEASE_TAG --draft=false
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to publish release.' }
+          $url = & gh release view $env:RELEASE_TAG --json url --jq '.url'
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to retrieve published release URL.' }
+          "Published [$env:RELEASE_TAG]($url) from commit $env:GITHUB_SHA with all four Store packages." >> $env:GITHUB_STEP_SUMMARY

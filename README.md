@@ -63,6 +63,16 @@ pwsh -NoLogo -NoProfile -File .\scripts\Build-StorePackage.ps1
 
 提出ファイルは `artifacts\store\<version>\BatteryTray_<version>.msixupload` に生成されます。MSIXはStore側で再署名されるため、提出用ファイルにはローカル証明書による署名を行いません。
 
+### GitHub Releaseへの公開
+
+「Actions > Publish Store Release > Run workflow」でビルド対象のブランチを選択し、手動実行します。`packaging/store-settings.json` の `Version` を使い、実行時のコミットにバージョンタグ（例: `v1.1.0.0`）を付けて、正式なRelease `TabbyBBMonitor 1.1.0.0` を公開します。ワークフローを追加しただけでは公開されません。
+
+Releaseビルド・単体テストの成功後、正式なStore Identityと既定の難読化を使用してx64／ARM64をビルドします。Releaseには各アーキテクチャの `.msix` 2ファイル、`.msixbundle`、`.msixupload` の計4ファイルを添付します。難読化対応表と中間ファイルは公開しません。添付物は未署名のStore提出用であり、そのままインストールするための署名済み配布物ではありません。Microsoft Storeへの提出自体は自動化していません。
+
+同名タグまたはRelease（下書きを含む）が存在すると、上書きせず失敗します。次の公開前にバージョンを更新してください。アップロード中に失敗した場合は下書きが残ることがあります。その場合は内容を確認し、不要な下書きと同名タグを手動で削除してから再実行するか、バージョンを更新します。全添付物のアップロード完了後にのみ正式公開します。
+
+認証にはGitHub標準の `GITHUB_TOKEN` と `contents: write` を使用し、追加のPATや署名用証明書は不要です。タグ保護ルールなどで作成が制限されている場合は、そのルールに従って実行権限を設定してください。
+
 ### MSIXパッケージテスト
 
 テスト専用の一意なIdentityを使ってx64／ARM64のMSIX、bundle、msixuploadを生成し、マニフェスト、StartupTask、capability、自己完結ランタイム、18言語の`resources.pri`を展開検査できます。通常テストは証明書ストアやインストール済みアプリを変更しません。
