@@ -35,6 +35,32 @@ function Invoke-RestMethod {
     param($Method, $Uri, $ContentType, $Body, $Headers, $TimeoutSec, $InFile)
     $path = ([Uri]$Uri).AbsolutePath
     $mockState.calls.Add("$Method $path")
+    $httpCode = 0
+    $payload = $null
+    if ($path.EndsWith('/token') -and $mockState.scenario -eq 'auth-http') {
+        $httpCode = 401
+        $payload = @{ error = 'invalid_client'; error_codes = @(7000215); error_description = 'TEST-CLIENT-SECRET TEST-ACCESS-TOKEN TEST-SAS' } | ConvertTo-Json
+    }
+    if ($Method -eq 'POST' -and $path.EndsWith('/submissions')) {
+        switch ($mockState.scenario) {
+            'create-http-forbidden' { $httpCode = 403; $payload = @{ error = @{ code = 'AccessDenied'; message = 'TEST-CLIENT-SECRET TEST-ACCESS-TOKEN TEST-SAS' } } | ConvertTo-Json }
+            'create-http-conflict' { $httpCode = 409; $payload = @{ errors = @(@{ code = 'InvalidState'; message = 'TEST-SAS' }, @{ errorCode = 'Conflict' }) } | ConvertTo-Json }
+            'create-http-unstructured' { $httpCode = 500; $payload = 'TEST-CLIENT-SECRET TEST-ACCESS-TOKEN https://test.blob.core.windows.net/upload?sig=TEST-SAS' }
+            'create-http-unsafe-code' { $httpCode = 400; $payload = @{ code = 'TEST-ACCESS-TOKEN'; errorCode = 'https://test.blob.core.windows.net/upload?sig=TEST-SAS' } | ConvertTo-Json }
+            'create-http-code-secret' { $httpCode = 400; $payload = @{ code = 'PrefixClientSecret123'; errorCode = 'ClientSecret123' } | ConvertTo-Json }
+        }
+    }
+    if ($InFile -and $mockState.scenario -eq 'upload-http') {
+        $httpCode = 403
+        $payload = '<Error><Code>AuthenticationFailed</Code><Message>TEST-SAS TEST-CLIENT-SECRET</Message></Error>'
+    }
+    if ($httpCode) {
+        $response = [Net.Http.HttpResponseMessage]::new([Net.HttpStatusCode]$httpCode)
+        $exception = [Microsoft.PowerShell.Commands.HttpResponseException]::new('TEST-CLIENT-SECRET TEST-ACCESS-TOKEN TEST-SAS', $response)
+        $record = [Management.Automation.ErrorRecord]::new($exception, 'MockHttpFailure', [Management.Automation.ErrorCategory]::InvalidOperation, $Uri)
+        $record.ErrorDetails = [Management.Automation.ErrorDetails]::new($payload)
+        throw $record
+    }
     if (($mockState.scenario -eq 'auth-failure' -and $path.EndsWith('/token')) -or
         ($mockState.scenario -eq 'upload-failure' -and $InFile) -or
         ($mockState.scenario -eq 'commit-failure' -and $path.EndsWith('/commit')) -or
@@ -66,13 +92,20 @@ function Invoke-RestMethod {
         return @{ applicationPackages = @(@{ version = $oldVersion }) }
     }
     if ($path.EndsWith('/submissions') -and $Method -eq 'POST') {
-        return @{
+        $created = @{
             id = '200'; fileUploadUrl = 'https://test.blob.core.windows.net/upload?sig=TEST-SAS'
             applicationPackages = @(@{ fileName = 'old.msixbundle'; fileStatus = 'Uploaded'; version = '1.0.0.0'; id = '101' })
             listings = @{ 'ja-jp' = @{ baseListing = @{ description = 'Keep description'; images = @(@{ fileName = 'existing.png'; fileStatus = 'Uploaded' }) } } }
             pricing = @{ priceId = 'Free' }; targetPublishMode = 'Manual'; targetPublishDate = '2026-12-01T00:00:00Z'
             packageDeliveryOptions = @{ packageRollout = @{ isPackageRollout = $true; packageRolloutPercentage = 20 } }
         }
+        switch ($mockState.scenario) {
+            'create-missing-id' { $created.Remove('id') }
+            'create-invalid-id' { $created.id = 'TEST-SAS' }
+            'create-missing-upload' { $created.Remove('fileUploadUrl') }
+            'create-unexpected-upload' { $created.fileUploadUrl = 'https://example.com/upload?sig=TEST-SAS' }
+        }
+        return $created
     }
     if ($path.EndsWith('/submissions/200') -and $Method -eq 'PUT') {
         $mockState.update = [Text.Encoding]::UTF8.GetString($Body) | ConvertFrom-Json -AsHashtable
@@ -111,7 +144,7 @@ try {
     $env:GITHUB_ACTIONS = 'false'
     $env:GITHUB_STEP_SUMMARY = $summaryPath
     @{ IdentityName = 'Test.Tabby'; Publisher = 'CN=Test'; Version = '1.1.0.0' } | ConvertTo-Json | Set-Content -LiteralPath $settingsPath
-    $scenarios = @('success', 'missing-pending-field', 'missing-auth', 'auth-failure', 'bundle-mismatch', 'identity-mismatch', 'publisher-mismatch', 'pending', 'unpublished', 'same-version', 'older-version', 'create-failure', 'upload-failure', 'commit-failure', 'commit-rejected', 'certification-rejected', 'unknown-status', 'timeout')
+    $scenarios = @('success', 'missing-pending-field', 'missing-auth', 'auth-failure', 'bundle-mismatch', 'identity-mismatch', 'publisher-mismatch', 'pending', 'unpublished', 'same-version', 'older-version', 'create-failure', 'upload-failure', 'commit-failure', 'commit-rejected', 'certification-rejected', 'unknown-status', 'timeout', 'auth-http', 'create-http-forbidden', 'create-http-conflict', 'create-http-unstructured', 'create-http-unsafe-code', 'create-http-code-secret', 'upload-http', 'create-missing-id', 'create-invalid-id', 'create-missing-upload', 'create-unexpected-upload')
     foreach ($scenario in $scenarios) {
         $mockState.scenario = $scenario
         $mockState.calls = [Collections.Generic.List[string]]::new()
@@ -119,7 +152,7 @@ try {
         $mockState.polls = 0
         $mockState.uploadPath = $null
         Set-Content -LiteralPath $summaryPath -Value ''
-        $env:MSSTORE_CLIENT_SECRET = if ($scenario -eq 'missing-auth') { '' } else { 'TEST-CLIENT-SECRET' }
+        $env:MSSTORE_CLIENT_SECRET = switch ($scenario) { 'missing-auth' { '' } 'create-http-code-secret' { 'ClientSecret123' } default { 'TEST-CLIENT-SECRET' } }
         New-TestBundle -Version $(if ($scenario -eq 'bundle-mismatch') { '1.0.0.0' } else { '1.1.0.0' })
         $failure = $null
         $captured = @()
@@ -129,8 +162,27 @@ try {
         $expectSuccess = $scenario -in @('success', 'missing-pending-field')
         Assert-True (($null -eq $failure) -eq $expectSuccess) "$scenario outcome: $failure"
         $text = ($captured | Out-String) + $failure + (Get-Content -LiteralPath $summaryPath -Raw)
-        foreach ($secret in @('TEST-CLIENT-SECRET', 'TEST-ACCESS-TOKEN', 'TEST-SAS')) {
+        foreach ($secret in @('TEST-CLIENT-SECRET', 'TEST-ACCESS-TOKEN', 'TEST-SAS', 'ClientSecret123')) {
             Assert-True (-not $text.Contains($secret)) "$scenario does not log secrets"
+        }
+        $expectedDiagnostics = @{
+            'auth-http' = @('HTTP 401', 'Microsoft code: invalid_client, AADSTS7000215')
+            'create-http-forbidden' = @('HTTP 403', 'Microsoft code: AccessDenied', 'during submission creation.')
+            'create-http-conflict' = @('HTTP 409', 'Microsoft code: InvalidState, Conflict')
+            'create-http-unstructured' = @('HTTP 500')
+            'create-http-unsafe-code' = @('HTTP 400')
+            'create-http-code-secret' = @('HTTP 400')
+            'upload-http' = @('HTTP 403', 'during package upload.')
+            'create-missing-id' = @('creation response validation', 'Invalid or missing submission ID')
+            'create-invalid-id' = @('creation response validation', 'Invalid or missing submission ID')
+            'create-missing-upload' = @('creation response validation', 'Invalid or unexpected upload endpoint', 'Submission ID: 200')
+            'create-unexpected-upload' = @('creation response validation', 'Invalid or unexpected upload endpoint', 'Submission ID: 200')
+        }
+        if ($expectedDiagnostics.ContainsKey($scenario)) {
+            $summary = Get-Content -LiteralPath $summaryPath -Raw
+            foreach ($expected in $expectedDiagnostics[$scenario]) {
+                Assert-True ($failure.Contains($expected) -and $summary.Contains($expected)) "$scenario diagnostic in error and summary: $expected"
+            }
         }
         if ($expectSuccess) {
             $expectedCalls = @('Post /11111111-1111-1111-1111-111111111111/oauth2/token', 'GET /v1.0/my/applications/9TEST', 'GET /v1.0/my/applications/9TEST/submissions/100', 'POST /v1.0/my/applications/9TEST/submissions', 'PUT /v1.0/my/applications/9TEST/submissions/200', 'Put /upload', 'POST /v1.0/my/applications/9TEST/submissions/200/commit', 'GET /v1.0/my/applications/9TEST/submissions/200/status', 'GET /v1.0/my/applications/9TEST/submissions/200/status')
