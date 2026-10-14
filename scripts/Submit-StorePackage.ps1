@@ -148,13 +148,14 @@ function Invoke-StoreRequest {
         Method = $Method
         Uri = "https://manage.devcenter.microsoft.com/v1.0/my/$Path"
         Headers = @{ Authorization = "Bearer $script:accessToken" }
+        # Store also requires JSON Content-Type for bodyless creation/commit POSTs.
+        ContentType = 'application/json; charset=utf-8'
         ErrorAction = 'Stop'
         TimeoutSec = $TimeoutSeconds
         Verbose = $false
         Debug = $false
     }
     if ($null -ne $Body) {
-        $request.ContentType = 'application/json; charset=utf-8'
         $request.Body = [Text.Encoding]::UTF8.GetBytes(($Body | ConvertTo-Json -Depth 100 -Compress))
     }
     $response = Invoke-SubmissionHttp $request

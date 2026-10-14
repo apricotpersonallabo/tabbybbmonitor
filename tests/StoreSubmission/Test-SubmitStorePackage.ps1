@@ -35,6 +35,10 @@ function Invoke-RestMethod {
     param($Method, $Uri, $ContentType, $Body, $Headers, $TimeoutSec, $InFile)
     $path = ([Uri]$Uri).AbsolutePath
     $mockState.calls.Add("$Method $path")
+    if ($path.StartsWith('/v1.0/my/')) {
+        Assert-True ($ContentType -eq 'application/json; charset=utf-8') 'Store API requires JSON Content-Type even for bodyless requests'
+        if ($Method -eq 'POST') { Assert-True ($null -eq $Body) 'creation and commit POSTs have no request body' }
+    }
     $httpCode = 0
     $payload = $null
     if ($path.EndsWith('/token') -and $mockState.scenario -eq 'auth-http') {
