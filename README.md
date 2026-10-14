@@ -92,9 +92,9 @@ Releaseビルド・単体テストの成功後、正式なStore Identityと既�
 
 4. `packaging/store-settings.json`のIdentity・PublisherをPartner Centerと一致させ、Versionを公開済みパッケージより増やします。
 5. 新しいビルドが必要な場合は「Actions > Publish Store Release > Run workflow」でビルド・GitHub Release公開を実行します。公開済みReleaseを提出する場合はこの工程は不要で、バージョン更新や再ビルドも不要です。
-6. 「Actions > Submit Store Release > Run workflow」で、提出ツールを実行するブランチは通常`main`を選び、`release_tag`に提出対象の公開済みReleaseタグ（例: `v1.1.1.0`）を入力します。既存パッケージをそのReleaseのx64／ARM64 bundleで置き換え、審査へ提出します。
+6. 「Actions > Submit Store Release > Run workflow」で、提出ツールを実行するブランチは通常`main`を選びます。`release_tag`を空欄にするとGitHubでLatestに指定された最新の正式Releaseを提出します。過去版を提出するときだけReleaseタグ（例: `v1.1.1.0`）を入力してください。既存パッケージをそのReleaseのx64／ARM64 bundleで置き換え、審査へ提出します。
 
-提出ワークフローはビルドやGitHub Release作成を行いません。指定タグの公開済みbundleと、同じタグの`packaging/store-settings.json`を取得して照合するため、main側のVersionが先に進んでいても以前のReleaseを提出できます。提出スクリプトは実行時に選択したブランチのコミットを使用します。下書き・プレリリース・タグとVersionが一致しないReleaseは提出できません。
+提出ワークフローはビルドやGitHub Release作成を行いません。最新Releaseは開始時に一度だけ解決し、確定したタグの公開済みbundleと、同じタグの`packaging/store-settings.json`を取得して照合するため、実行中に新Releaseが公開されても提出対象は変わりません。main側のVersionが先に進んでいても以前のReleaseを提出できます。提出スクリプトは実行時に選択したブランチのコミットを使用します。下書き・プレリリース・タグとVersionが一致しないReleaseは提出できません。
 
 掲載文、画像、リリースノート、価格、段階配信、審査後の公開方法・日時は最後の公開済み申請から引き継ぎます。`Immediate`の場合は審査後に自動公開され、`Manual`の場合は公開操作が引き続き必要です。ワークフローは受付状態を15秒間隔、最大15分間確認し、`PreProcessing`などの正常な受付状態になれば成功します。Store審査の完了・公開完了はPartner Centerで確認してください。
 

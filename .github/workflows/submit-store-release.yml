@@ -4,8 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Published GitHub Release tag to submit (for example v1.1.1.0)'
-        required: true
+        description: 'Leave blank to submit the latest release; enter a tag only for an older release (e.g. v1.1.1.0)'
+        required: false
+        default: ''
         type: string
 
 permissions:
@@ -39,15 +40,26 @@ jobs:
       - name: Download published bundle and its release settings
         run: |
           $ErrorActionPreference = 'Stop'
-          if ($env:RELEASE_TAG -cnotmatch '^v\d+\.\d+\.\d+\.0$') {
+          $requestedTag = ([string]$env:RELEASE_TAG).Trim()
+          if ($requestedTag -and $requestedTag -cnotmatch '^v\d+\.\d+\.\d+\.0$') {
             throw 'Specify a release tag such as v1.1.1.0.'
           }
-          $metadata = & gh release view $env:RELEASE_TAG --json tagName,isDraft,isPrerelease,url
+          if ($requestedTag) {
+            $metadata = & gh release view $requestedTag --json tagName,isDraft,isPrerelease,url
+          } else {
+            # Without a tag, gh resolves GitHub's latest published release.
+            $metadata = & gh release view --json tagName,isDraft,isPrerelease,url
+          }
           if ($LASTEXITCODE -ne 0) { throw 'Unable to find the requested GitHub Release.' }
           $release = $metadata | ConvertFrom-Json
-          if ($release.isDraft -or $release.isPrerelease -or $release.tagName -cne $env:RELEASE_TAG) {
+          if ($release.isDraft -or $release.isPrerelease -or
+              $release.tagName -cnotmatch '^v\d+\.\d+\.\d+\.0$' -or
+              ($requestedTag -and $release.tagName -cne $requestedTag)) {
             throw 'Select an existing published, non-prerelease Store release.'
           }
+          # Resolve latest once, then pin downloads and the next step to this tag.
+          $env:RELEASE_TAG = [string]$release.tagName
+          "RELEASE_TAG=$env:RELEASE_TAG" >> $env:GITHUB_ENV
           $version = $env:RELEASE_TAG.Substring(1)
           $directory = Join-Path $env:RUNNER_TEMP 'store-submission'
           $null = New-Item -ItemType Directory -Path $directory -Force
