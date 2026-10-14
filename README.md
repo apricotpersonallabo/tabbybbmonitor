@@ -79,14 +79,16 @@ Releaseビルド・単体テストの成功後、正式なStore Identityと既�
 
 1. [Microsoftの認証設定手順](https://learn.microsoft.com/en-us/windows/uwp/monetize/create-and-manage-submissions-using-windows-store-services)に従い、Partner CenterアカウントにMicrosoft Entraテナントを関連付けます。
 2. Partner Centerの「アカウント設定 > ユーザー」から自動提出用Entraアプリケーションを追加し、`Manager`ロールを付与します。Tenant ID、Client IDを控え、クライアントシークレット（キー）を作成します。キーの値は作成時に保存し、有効期限前に更新してください。
-3. GitHubリポジトリの「Settings > Secrets and variables > Actions」で次の値を設定します。
+3. GitHubリポジトリの「Settings > Environments > ms-store」で次の値を設定します。Environmentがない場合は`ms-store`という名前で作成してください。提出ジョブはこのEnvironmentのSecretsとVariablesを参照します。
 
 | 種類 | 名前 | 値 |
 | --- | --- | --- |
-| Secret | `MSSTORE_TENANT_ID` | EntraのTenant ID（GUID） |
-| Secret | `MSSTORE_CLIENT_ID` | 自動提出用アプリケーションのClient ID（GUID） |
-| Secret | `MSSTORE_CLIENT_SECRET` | クライアントシークレットの**値**（シークレットIDではありません） |
-| Variable | `MSSTORE_APP_ID` | 提出対象製品のStore ID（例: `9N…`）。IdentityNameやEntraのClient IDとは別の値です |
+| Environment Secret | `MSSTORE_TENANT_ID` | EntraのTenant ID（GUID） |
+| Environment Secret | `MSSTORE_CLIENT_ID` | 自動提出用アプリケーションのClient ID（GUID） |
+| Environment Secret | `MSSTORE_CLIENT_SECRET` | クライアントシークレットの**値**（シークレットIDではありません） |
+| Environment SecretまたはVariable | `MSSTORE_APP_ID` | 提出対象製品のStore ID（例: `9N…`）。IdentityNameやEntraのClient IDとは別の値です。Secretを優先し、未設定ならVariableを使用します |
+
+`ms-store`に承認者やブランチ制限がある場合、提出ジョブはその保護ルールに従います。Repository Secretsへの再登録は不要です。
 
 4. `packaging/store-settings.json`のIdentity・PublisherをPartner Centerと一致させ、Versionを公開済みパッケージより増やします。
 5. 「Actions > Publish Store Release > Run workflow」を実行します。GitHub Release公開後にStore申請を作成し、既存パッケージを新しいx64／ARM64 bundleで置き換え、審査へ提出します。
