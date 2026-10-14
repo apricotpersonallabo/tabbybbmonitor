@@ -37,6 +37,10 @@ jobs:
         shell: pwsh
         run: dotnet test .\BatteryTray.slnx -c Release --no-build --no-restore
 
+      - name: Test Store submission with mocked HTTP
+        shell: pwsh
+        run: .\tests\StoreSubmission\Test-SubmitStorePackage.ps1
+
       - name: Validate unsigned MSIX packages
         if: github.event_name != 'workflow_dispatch'
         shell: pwsh
