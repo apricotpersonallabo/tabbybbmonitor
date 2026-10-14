@@ -21,12 +21,48 @@ $releaseTag = 'unknown'
 $script:accessToken = $null
 $script:failureReason = $null
 $script:httpDiagnostic = $null
+$script:requestSecrets = [Collections.Generic.List[string]]::new()
 
 function Stop-StoreSubmission {
     param([string]$Reason)
     # Only call this with fixed messages from this script, never server text.
     $script:failureReason = $Reason
     throw $Reason
+}
+
+function Protect-StoreDiagnosticText {
+    param([string]$Text)
+    if ([string]::IsNullOrWhiteSpace($Text)) { return '' }
+    if ($Text.Length -gt 32768) { return '[message omitted: too long]' }
+    $sensitive = [Collections.Generic.List[string]]::new()
+    foreach ($value in @($env:MSSTORE_CLIENT_SECRET, $script:accessToken, $env:MSSTORE_TENANT_ID,
+        $env:MSSTORE_CLIENT_ID, $ApplicationId, $env:GH_TOKEN, $env:GITHUB_TOKEN) + @($script:requestSecrets)) {
+        if (-not [string]::IsNullOrWhiteSpace($value)) { $sensitive.Add($value) }
+    }
+    # Learn labelled credentials before removing URLs, so repeated unlabelled
+    # copies of a SAS signature or bearer token are redacted too.
+    $credentialPattern = '(?i)\b(?:client[ _-]?secret|access[ _-]?token|refresh[ _-]?token|id[ _-]?token|password|sig|signature|sharedaccesssignature|api[ _-]?key|token|secret)\b(?:\s*[:=]\s*|\s+)["'']?([^\s"''<>;&]+)'
+    foreach ($match in [regex]::Matches($Text, $credentialPattern)) {
+        $sensitive.Add($match.Groups[1].Value)
+        $sensitive.Add([Uri]::UnescapeDataString($match.Groups[1].Value))
+    }
+    foreach ($match in [regex]::Matches($Text, '(?i)\bBearer\s+([^\s"''<>;,]+)')) { $sensitive.Add($match.Groups[1].Value) }
+    foreach ($value in ($sensitive | Select-Object -Unique | Sort-Object Length -Descending)) {
+        foreach ($representation in @($value, [Uri]::EscapeDataString($value), [Net.WebUtility]::HtmlEncode($value))) {
+            $Text = [regex]::Replace($Text, [regex]::Escape($representation), '[REDACTED]', [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+        }
+    }
+    $Text = [regex]::Replace($Text, $credentialPattern, '[credential REDACTED]')
+    $Text = [regex]::Replace($Text, '(?i)\bBearer\s+[^\s"''<>;,]+', 'Bearer [REDACTED]')
+    $Text = [regex]::Replace($Text, '(?i)\b(?:https?|ftp)://[^\s<>"'']+|\bwww\.[^\s<>"'']+', '[URL REDACTED]')
+    $Text = [regex]::Replace($Text, '\b[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b', '[JWT REDACTED]')
+    $Text = [regex]::Replace($Text, '(?i)\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b', '[ID REDACTED]')
+    $Text = [regex]::Replace($Text, '(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b', '[EMAIL REDACTED]')
+    $Text = [regex]::Replace($Text, '[\x00-\x1f\x7f]+', ' ').Replace('::', ': :').Trim()
+    # Encode HTML before putting server text in a Markdown summary.
+    $Text = [Net.WebUtility]::HtmlEncode($Text)
+    if ($Text.Length -gt 600) { $Text = $Text.Substring(0, 600) + ' [truncated]' }
+    return $Text
 }
 
 function Get-StoreHttpDiagnostic {
@@ -43,20 +79,28 @@ function Get-StoreHttpDiagnostic {
             } catch { } # An unexpected status representation must not hide the original failure.
         }
     }
-    # Extract only structured error codes. Never print raw bodies, messages,
-    # exception text, headers or request URLs (they can contain credentials).
+    # Extract only known JSON error fields. Free-form exception text, response
+    # bodies and headers are never printed. Message fields are redacted below.
     if ($Failure.ErrorDetails -and $Failure.ErrorDetails.Message) {
         try {
             $details = $Failure.ErrorDetails.Message | ConvertFrom-Json -AsHashtable -ErrorAction Stop
             $candidates = @()
             if ($details -is [Collections.IDictionary]) {
-                $candidates += $details['code'], $details['errorCode']
+                $errorObjects = @($details)
                 if ($details['error'] -is [string]) { $candidates += $details['error'] }
                 if ($details['error'] -is [Collections.IDictionary]) {
-                    $candidates += $details['error']['code'], $details['error']['errorCode']
+                    $errorObjects += $details['error']
+                    $errorObjects += @($details['error']['details'])
                 }
-                foreach ($item in @($details['errors'])) {
-                    if ($item -is [Collections.IDictionary]) { $candidates += $item['code'], $item['errorCode'] }
+                $errorObjects += @($details['errors'])
+                $messages = @()
+                foreach ($item in $errorObjects) {
+                    if ($item -is [Collections.IDictionary]) {
+                        $candidates += $item['code'], $item['errorCode']
+                        foreach ($field in @('message', 'error_description')) {
+                            if ($item[$field] -is [string]) { $messages += $item[$field] }
+                        }
+                    }
                 }
                 foreach ($aadCode in @($details['error_codes'])) {
                     if ([string]$aadCode -match '^\d{5,8}$') { $candidates += "AADSTS$aadCode" }
@@ -64,14 +108,12 @@ function Get-StoreHttpDiagnostic {
                 $codes = @($candidates | Where-Object {
                     $candidate = $_
                     $safe = $candidate -is [string] -and $candidate -cmatch '^[A-Za-z][A-Za-z0-9_.]{0,79}$'
-                    if ($safe) {
-                        foreach ($secret in @($env:MSSTORE_CLIENT_SECRET, $script:accessToken, $env:MSSTORE_TENANT_ID, $env:MSSTORE_CLIENT_ID, $ApplicationId)) {
-                            if ($secret -and $candidate.Contains($secret, [StringComparison]::OrdinalIgnoreCase)) { $safe = $false }
-                        }
-                    }
+                    if ($safe) { $safe = (Protect-StoreDiagnosticText $candidate) -ceq $candidate }
                     $safe
                 } | Select-Object -Unique -First 5)
                 if ($codes.Count) { $parts.Add('Microsoft code: ' + ($codes -join ', ')) }
+                $safeMessage = Protect-StoreDiagnosticText (($messages | Select-Object -Unique -First 3) -join ' | ')
+                if ($safeMessage) { $parts.Add('Microsoft message (redacted): ' + $safeMessage) }
             }
         } catch {
             # Invalid or unexpected response bodies are deliberately omitted.
@@ -83,6 +125,15 @@ function Get-StoreHttpDiagnostic {
 
 function Invoke-SubmissionHttp {
     param([hashtable]$Request)
+    # Track SAS signatures from the current request without ever logging its URI.
+    $uri = [Uri]$Request.Uri
+    foreach ($pair in $uri.Query.TrimStart('?').Split('&')) {
+        $field = $pair.Split('=', 2)
+        if ($field.Count -eq 2 -and $field[0] -in @('sig', 'signature', 'token', 'access_token', 'client_secret')) {
+            $script:requestSecrets.Add($field[1])
+            $script:requestSecrets.Add([Uri]::UnescapeDataString($field[1]))
+        }
+    }
     try { Invoke-RestMethod @Request }
     catch {
         $script:httpDiagnostic = Get-StoreHttpDiagnostic $_

@@ -39,15 +39,25 @@ function Invoke-RestMethod {
     $payload = $null
     if ($path.EndsWith('/token') -and $mockState.scenario -eq 'auth-http') {
         $httpCode = 401
-        $payload = @{ error = 'invalid_client'; error_codes = @(7000215); error_description = 'TEST-CLIENT-SECRET TEST-ACCESS-TOKEN TEST-SAS' } | ConvertTo-Json
+        $payload = @{ error = 'invalid_client'; error_codes = @(7000215); error_description = 'Invalid client secret: TEST-CLIENT-SECRET. Token TEST-ACCESS-TOKEN. URL https://test.blob.core.windows.net/upload?sig=TEST-SAS' } | ConvertTo-Json
     }
     if ($Method -eq 'POST' -and $path.EndsWith('/submissions')) {
         switch ($mockState.scenario) {
-            'create-http-forbidden' { $httpCode = 403; $payload = @{ error = @{ code = 'AccessDenied'; message = 'TEST-CLIENT-SECRET TEST-ACCESS-TOKEN TEST-SAS' } } | ConvertTo-Json }
-            'create-http-conflict' { $httpCode = 409; $payload = @{ errors = @(@{ code = 'InvalidState'; message = 'TEST-SAS' }, @{ errorCode = 'Conflict' }) } | ConvertTo-Json }
+            'create-http-forbidden' { $httpCode = 403; $payload = @{ error = @{ code = 'AccessDenied'; message = 'Manager role is required. TEST-CLIENT-SECRET TEST-ACCESS-TOKEN sig=TEST-SAS https://test.blob.core.windows.net/upload?sig=TEST-SAS' } } | ConvertTo-Json }
+            'create-http-conflict' { $httpCode = 409; $payload = @{ errors = @(@{ code = 'InvalidState'; message = 'Resolve the pending submission. sig=TEST-SAS' }, @{ errorCode = 'Conflict' }) } | ConvertTo-Json }
             'create-http-unstructured' { $httpCode = 500; $payload = 'TEST-CLIENT-SECRET TEST-ACCESS-TOKEN https://test.blob.core.windows.net/upload?sig=TEST-SAS' }
             'create-http-unsafe-code' { $httpCode = 400; $payload = @{ code = 'TEST-ACCESS-TOKEN'; errorCode = 'https://test.blob.core.windows.net/upload?sig=TEST-SAS' } | ConvertTo-Json }
             'create-http-code-secret' { $httpCode = 400; $payload = @{ code = 'PrefixClientSecret123'; errorCode = 'ClientSecret123' } | ConvertTo-Json }
+            'create-http-message' {
+                $httpCode = 400
+                $payload = @{ code = 'InvalidParameterValue'; message = "Parameter applicationId is invalid. TEST-CLIENT-SECRET TEST-ACCESS-TOKEN 9TEST `r`n::warning:: <script> https://example.com/?sig=TEST-SAS TEST-SAS customer@example.com 33333333-3333-3333-3333-333333333333" } | ConvertTo-Json
+            }
+            'create-http-encoded-message' {
+                $httpCode = 400
+                $encodedSecret = [Uri]::EscapeDataString($env:MSSTORE_CLIENT_SECRET)
+                $payload = @{ error = @{ code = 'InvalidParameterValue'; details = @(@{ code = 'InvalidField'; message = "Parameter package is invalid. $encodedSecret Bearer UnknownBearerToken123 sig=UnknownSignature123 UnknownSignature123" }) } } | ConvertTo-Json -Depth 6
+            }
+            'create-http-long-message' { $httpCode = 400; $payload = @{ code = 'InvalidParameterValue'; message = ('Invalid parameter. ' * 100) + ' TEST-CLIENT-SECRET' } | ConvertTo-Json }
         }
     }
     if ($InFile -and $mockState.scenario -eq 'upload-http') {
@@ -144,7 +154,7 @@ try {
     $env:GITHUB_ACTIONS = 'false'
     $env:GITHUB_STEP_SUMMARY = $summaryPath
     @{ IdentityName = 'Test.Tabby'; Publisher = 'CN=Test'; Version = '1.1.0.0' } | ConvertTo-Json | Set-Content -LiteralPath $settingsPath
-    $scenarios = @('success', 'missing-pending-field', 'missing-auth', 'auth-failure', 'bundle-mismatch', 'identity-mismatch', 'publisher-mismatch', 'pending', 'unpublished', 'same-version', 'older-version', 'create-failure', 'upload-failure', 'commit-failure', 'commit-rejected', 'certification-rejected', 'unknown-status', 'timeout', 'auth-http', 'create-http-forbidden', 'create-http-conflict', 'create-http-unstructured', 'create-http-unsafe-code', 'create-http-code-secret', 'upload-http', 'create-missing-id', 'create-invalid-id', 'create-missing-upload', 'create-unexpected-upload')
+    $scenarios = @('success', 'missing-pending-field', 'missing-auth', 'auth-failure', 'bundle-mismatch', 'identity-mismatch', 'publisher-mismatch', 'pending', 'unpublished', 'same-version', 'older-version', 'create-failure', 'upload-failure', 'commit-failure', 'commit-rejected', 'certification-rejected', 'unknown-status', 'timeout', 'auth-http', 'create-http-forbidden', 'create-http-conflict', 'create-http-unstructured', 'create-http-unsafe-code', 'create-http-code-secret', 'upload-http', 'create-missing-id', 'create-invalid-id', 'create-missing-upload', 'create-unexpected-upload', 'create-http-message', 'create-http-encoded-message', 'create-http-long-message')
     foreach ($scenario in $scenarios) {
         $mockState.scenario = $scenario
         $mockState.calls = [Collections.Generic.List[string]]::new()
@@ -152,7 +162,7 @@ try {
         $mockState.polls = 0
         $mockState.uploadPath = $null
         Set-Content -LiteralPath $summaryPath -Value ''
-        $env:MSSTORE_CLIENT_SECRET = switch ($scenario) { 'missing-auth' { '' } 'create-http-code-secret' { 'ClientSecret123' } default { 'TEST-CLIENT-SECRET' } }
+        $env:MSSTORE_CLIENT_SECRET = switch ($scenario) { 'missing-auth' { '' } 'create-http-code-secret' { 'ClientSecret123' } 'create-http-encoded-message' { 'SECRET+/=&VALUE' } default { 'TEST-CLIENT-SECRET' } }
         New-TestBundle -Version $(if ($scenario -eq 'bundle-mismatch') { '1.0.0.0' } else { '1.1.0.0' })
         $failure = $null
         $captured = @()
@@ -162,8 +172,8 @@ try {
         $expectSuccess = $scenario -in @('success', 'missing-pending-field')
         Assert-True (($null -eq $failure) -eq $expectSuccess) "$scenario outcome: $failure"
         $text = ($captured | Out-String) + $failure + (Get-Content -LiteralPath $summaryPath -Raw)
-        foreach ($secret in @('TEST-CLIENT-SECRET', 'TEST-ACCESS-TOKEN', 'TEST-SAS', 'ClientSecret123')) {
-            Assert-True (-not $text.Contains($secret)) "$scenario does not log secrets"
+        foreach ($secret in @('TEST-CLIENT-SECRET', 'TEST-ACCESS-TOKEN', 'TEST-SAS', 'ClientSecret123', 'SECRET+/=&VALUE', 'SECRET%2B%2F%3D%26VALUE', 'UnknownBearerToken123', 'UnknownSignature123', 'customer@example.com', '33333333-3333-3333-3333-333333333333', '<script>', '::warning::', 'https://example.com/')) {
+            Assert-True (-not $text.Contains($secret)) "$scenario does not log test value $secret"
         }
         $expectedDiagnostics = @{
             'auth-http' = @('HTTP 401', 'Microsoft code: invalid_client, AADSTS7000215')
@@ -172,6 +182,9 @@ try {
             'create-http-unstructured' = @('HTTP 500')
             'create-http-unsafe-code' = @('HTTP 400')
             'create-http-code-secret' = @('HTTP 400')
+            'create-http-message' = @('HTTP 400', 'Microsoft code: InvalidParameterValue', 'Microsoft message (redacted): Parameter applicationId is invalid.', '[REDACTED]')
+            'create-http-encoded-message' = @('HTTP 400', 'Microsoft code: InvalidParameterValue, InvalidField', 'Parameter package is invalid.', '[REDACTED]')
+            'create-http-long-message' = @('HTTP 400', 'Invalid parameter.', '[truncated]')
             'upload-http' = @('HTTP 403', 'during package upload.')
             'create-missing-id' = @('creation response validation', 'Invalid or missing submission ID')
             'create-invalid-id' = @('creation response validation', 'Invalid or missing submission ID')
