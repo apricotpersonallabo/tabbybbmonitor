@@ -1,0 +1,79 @@
+name: Submit Store Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Published GitHub Release tag to submit (for example v1.1.1.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: submit-store-release
+  cancel-in-progress: false
+
+jobs:
+  submit:
+    environment: ms-store
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+    steps:
+      # Use the selected workflow commit for submission code, so older releases
+      # can be submitted with the latest fixes without rebuilding their packages.
+      - name: Check out submission tooling
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Download published bundle and its release settings
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RELEASE_TAG -cnotmatch '^v\d+\.\d+\.\d+\.0$') {
+            throw 'Specify a release tag such as v1.1.1.0.'
+          }
+          $metadata = & gh release view $env:RELEASE_TAG --json tagName,isDraft,isPrerelease,url
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to find the requested GitHub Release.' }
+          $release = $metadata | ConvertFrom-Json
+          if ($release.isDraft -or $release.isPrerelease -or $release.tagName -cne $env:RELEASE_TAG) {
+            throw 'Select an existing published, non-prerelease Store release.'
+          }
+          $version = $env:RELEASE_TAG.Substring(1)
+          $directory = Join-Path $env:RUNNER_TEMP 'store-submission'
+          $null = New-Item -ItemType Directory -Path $directory -Force
+          # The settings must come from the release tag, not the workflow branch:
+          # main may already contain a newer version than the bundle being submitted.
+          $encoded = & gh api "repos/$env:GH_REPO/contents/packaging/store-settings.json" --method GET -f "ref=$env:RELEASE_TAG" --jq '.content'
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to retrieve Store settings at the release tag.' }
+          $settingsText = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(($encoded -join '')))
+          $settings = $settingsText | ConvertFrom-Json
+          if ([string]$settings.Version -cne $version) { throw 'Release tag and Store settings version do not match.' }
+          $settingsText | Set-Content -LiteralPath (Join-Path $directory 'store-settings.json') -Encoding utf8
+          & gh release download $env:RELEASE_TAG --pattern "BatteryTray_$version.msixbundle" --dir $directory
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to download the published Store bundle. GitHub Release is retained.' }
+          "Submitting [$env:RELEASE_TAG]($($release.url)) using its published bundle and settings; no rebuild." >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Submit bundle for Microsoft Store certification
+        env:
+          MSSTORE_TENANT_ID: ${{ secrets.MSSTORE_TENANT_ID }}
+          MSSTORE_CLIENT_ID: ${{ secrets.MSSTORE_CLIENT_ID }}
+          MSSTORE_CLIENT_SECRET: ${{ secrets.MSSTORE_CLIENT_SECRET }}
+          MSSTORE_APP_ID: ${{ secrets.MSSTORE_APP_ID || vars.MSSTORE_APP_ID }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:MSSTORE_APP_ID)) {
+            'Store submission failed: configure MSSTORE_APP_ID in the ms-store environment secrets or variables. GitHub Release is retained.' >> $env:GITHUB_STEP_SUMMARY
+            throw 'Configure MSSTORE_APP_ID in the ms-store environment secrets or variables.'
+          }
+          $directory = Join-Path $env:RUNNER_TEMP 'store-submission'
+          $version = $env:RELEASE_TAG.Substring(1)
+          .\scripts\Submit-StorePackage.ps1 -PackagePath (Join-Path $directory "BatteryTray_$version.msixbundle") -SettingsPath (Join-Path $directory 'store-settings.json') -ApplicationId $env:MSSTORE_APP_ID

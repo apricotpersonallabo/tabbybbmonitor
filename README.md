@@ -67,7 +67,7 @@ pwsh -NoLogo -NoProfile -File .\scripts\Build-StorePackage.ps1
 
 「Actions > Publish Store Release > Run workflow」でビルド対象のブランチを選択し、手動実行します。`packaging/store-settings.json` の `Version` を使い、実行時のコミットにバージョンタグ（例: `v1.1.0.0`）を付けて、正式なRelease `TabbyBBMonitor 1.1.0.0` を公開します。ワークフローを追加しただけでは公開されません。
 
-Releaseビルド・単体テストの成功後、正式なStore Identityと既定の難読化を使用してx64／ARM64をビルドします。Releaseには各アーキテクチャの `.msix` 2ファイル、`.msixbundle`、`.msixupload` の計4ファイルを添付します。難読化対応表と中間ファイルは公開しません。添付物は未署名のStore提出用であり、そのままインストールするための署名済み配布物ではありません。Release公開後、専用の `submit` ジョブが公開済みの `.msixbundle` を取得し、Microsoft Storeの審査へ自動提出します。以下の認証設定が必要です。
+Releaseビルド・単体テストの成功後、正式なStore Identityと既定の難読化を使用してx64／ARM64をビルドします。Releaseには各アーキテクチャの `.msix` 2ファイル、`.msixbundle`、`.msixupload` の計4ファイルを添付します。難読化対応表と中間ファイルは公開しません。添付物は未署名のStore提出用であり、そのままインストールするための署名済み配布物ではありません。ビルド・Release公開はここで完了し、Store提出は別の「Submit Store Release」で実行します。
 
 同名タグまたはRelease（下書きを含む）が存在すると、上書きせず失敗します。次の公開前にバージョンを更新してください。アップロード中に失敗した場合は下書きが残ることがあります。その場合は内容を確認し、不要な下書きと同名タグを手動で削除してから再実行するか、バージョンを更新します。全添付物のアップロード完了後にのみ正式公開します。
 
@@ -91,13 +91,16 @@ Releaseビルド・単体テストの成功後、正式なStore Identityと既�
 `ms-store`に承認者やブランチ制限がある場合、提出ジョブはその保護ルールに従います。Repository Secretsへの再登録は不要です。
 
 4. `packaging/store-settings.json`のIdentity・PublisherをPartner Centerと一致させ、Versionを公開済みパッケージより増やします。
-5. 「Actions > Publish Store Release > Run workflow」を実行します。GitHub Release公開後にStore申請を作成し、既存パッケージを新しいx64／ARM64 bundleで置き換え、審査へ提出します。
+5. 新しいビルドが必要な場合は「Actions > Publish Store Release > Run workflow」でビルド・GitHub Release公開を実行します。公開済みReleaseを提出する場合はこの工程は不要で、バージョン更新や再ビルドも不要です。
+6. 「Actions > Submit Store Release > Run workflow」で、提出ツールを実行するブランチは通常`main`を選び、`release_tag`に提出対象の公開済みReleaseタグ（例: `v1.1.1.0`）を入力します。既存パッケージをそのReleaseのx64／ARM64 bundleで置き換え、審査へ提出します。
+
+提出ワークフローはビルドやGitHub Release作成を行いません。指定タグの公開済みbundleと、同じタグの`packaging/store-settings.json`を取得して照合するため、main側のVersionが先に進んでいても以前のReleaseを提出できます。提出スクリプトは実行時に選択したブランチのコミットを使用します。下書き・プレリリース・タグとVersionが一致しないReleaseは提出できません。
 
 掲載文、画像、リリースノート、価格、段階配信、審査後の公開方法・日時は最後の公開済み申請から引き継ぎます。`Immediate`の場合は審査後に自動公開され、`Manual`の場合は公開操作が引き続き必要です。ワークフローは受付状態を15秒間隔、最大15分間確認し、`PreProcessing`などの正常な受付状態になれば成功します。Store審査の完了・公開完了はPartner Centerで確認してください。
 
 Identity・Publisher不一致、進行中申請の存在、未公開アプリ、バージョン不足の場合は申請作成前に停止します。トークン、クライアントシークレット、アップロード用SAS URLはエラー詳細やSummaryに出力しません。SummaryにはReleaseタグ・申請ID・受付状態を記録します。
 
-提出に失敗してもGitHub Releaseは残ります。申請作成前の失敗は原因を修正して「Re-run failed jobs」で `submit` ジョブだけを再実行してください。全ジョブを再実行すると既存タグの検査で失敗します。申請作成後（作成要求の応答を受信できなかった場合も含む）はPartner Centerで残った申請と状態を確認し、進行中なら完了を待ち、不要な失敗申請・下書きなら削除してから提出ジョブだけ再実行してください。スクリプトは申請を自動削除・上書きしません。commit済み申請の受付確認だけがタイムアウトした場合は、まずPartner Centerで受付済みか確認してください。
+提出に失敗してもGitHub Releaseは残ります。申請作成前の失敗は原因を修正して「Submit Store Release」を同じタグで再実行してください。SecretsやVariablesだけを修正した場合は「Re-run failed jobs」も利用できます。ワークフローやスクリプトを修正した場合は、更新後のmainを選んで新しく実行します。申請作成後（作成要求の応答を受信できなかった場合も含む）はPartner Centerで残った申請と状態を確認し、進行中なら完了を待ち、不要な失敗申請・下書きなら削除してから提出を再実行してください。スクリプトは申請を自動削除・上書きしません。commit済み申請の受付確認だけがタイムアウトした場合は、まずPartner Centerで受付済みか確認してください。
 
 APIで作成した申請をPartner Center画面で編集すると、その後APIで更新・commitできなくなる場合があります。画面から編集した申請はそのまま画面で提出するか、不要なら削除して新しく作成してください。API非対応機能によるエラーが出た場合もPartner Centerで提出します。
 

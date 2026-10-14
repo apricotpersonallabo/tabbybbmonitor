@@ -14,9 +14,6 @@ jobs:
   release:
     runs-on: windows-latest
     timeout-minutes: 45
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-      tag: ${{ steps.version.outputs.tag }}
     defaults:
       run:
         shell: pwsh
@@ -118,44 +115,3 @@ jobs:
           $url = & gh release view $env:RELEASE_TAG --json url --jq '.url'
           if ($LASTEXITCODE -ne 0) { throw 'Unable to retrieve published release URL.' }
           "Published [$env:RELEASE_TAG]($url) from commit $env:GITHUB_SHA with all four Store packages." >> $env:GITHUB_STEP_SUMMARY
-
-  submit:
-    needs: release
-    environment: ms-store
-    runs-on: windows-latest
-    timeout-minutes: 30
-    permissions:
-      contents: read
-    defaults:
-      run:
-        shell: pwsh
-    env:
-      GH_TOKEN: ${{ github.token }}
-      GH_REPO: ${{ github.repository }}
-      STORE_VERSION: ${{ needs.release.outputs.version }}
-      RELEASE_TAG: ${{ needs.release.outputs.tag }}
-    steps:
-      - name: Check out release commit
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-
-      - name: Download published Store bundle
-        run: |
-          $ErrorActionPreference = 'Stop'
-          & gh release download $env:RELEASE_TAG --pattern "BatteryTray_$($env:STORE_VERSION).msixbundle" --dir "$env:RUNNER_TEMP/store-submission"
-          if ($LASTEXITCODE -ne 0) { throw 'Unable to download published Store bundle. GitHub Release is retained; rerun only the submit job.' }
-
-      - name: Submit bundle for Microsoft Store certification
-        env:
-          MSSTORE_TENANT_ID: ${{ secrets.MSSTORE_TENANT_ID }}
-          MSSTORE_CLIENT_ID: ${{ secrets.MSSTORE_CLIENT_ID }}
-          MSSTORE_CLIENT_SECRET: ${{ secrets.MSSTORE_CLIENT_SECRET }}
-          MSSTORE_APP_ID: ${{ secrets.MSSTORE_APP_ID || vars.MSSTORE_APP_ID }}
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:MSSTORE_APP_ID)) {
-            'Store submission failed: configure MSSTORE_APP_ID in the ms-store environment secrets or variables. GitHub Release is retained; rerun only the submit job.' >> $env:GITHUB_STEP_SUMMARY
-            throw 'Configure MSSTORE_APP_ID in the ms-store environment secrets or variables.'
-          }
-          .\scripts\Submit-StorePackage.ps1 -PackagePath "$env:RUNNER_TEMP/store-submission/BatteryTray_$($env:STORE_VERSION).msixbundle" -ApplicationId $env:MSSTORE_APP_ID
