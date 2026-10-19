@@ -24,6 +24,10 @@ internal sealed class SettingsForm : Form
     private readonly Label _detailName = new();
     private readonly Label _detailStatus = new();
     private readonly CheckBox _monitorDevice = new();
+    private readonly ComboBox _notificationMode = new() { Name = "NotificationMode", DropDownStyle = ComboBoxStyle.DropDownList, Width = 300, DropDownWidth = 440 };
+    private readonly Label _pauseStatus = new() { AutoSize = true, MaximumSize = new Size(300, 0) };
+    private readonly FlowLayoutPanel _pauseButtons = new() { AutoSize = true, MaximumSize = new Size(300, 0) };
+    private readonly BatteryMonitorState _monitorState;
     private readonly NumericUpDown _critical = CreatePercentageInput();
     private readonly NumericUpDown _low = CreatePercentageInput();
     private readonly NumericUpDown _caution = CreatePercentageInput();
@@ -54,8 +58,10 @@ internal sealed class SettingsForm : Form
         IStartupRegistration startupRegistration,
         bool isOnboarding = false,
         DeviceRefreshService? refreshService = null,
-        StoreUpdateService? updateService = null)
+        StoreUpdateService? updateService = null,
+        BatteryMonitorState? monitorState = null)
     {
+        _monitorState = monitorState ?? new();
         _ownsUpdateService = updateService is null;
         _updateService = updateService ?? new StoreUpdateService(new StoreUpdateProvider());
         _ownsRefreshService = refreshService is null;
@@ -77,6 +83,8 @@ internal sealed class SettingsForm : Form
         MergeObserved(settings, observedDevices);
         ConfigureGeneralSettings(settings);
         ConfigureGrid();
+        _grid.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.AllCells;
+        _grid.Columns["Battery"]!.DefaultCellStyle.WrapMode = DataGridViewTriState.True;
         BuildLayout();
         _updateService.Changed += ApplyUpdateSnapshot;
         ApplyUpdateSnapshot(_updateService.Snapshot);
@@ -131,7 +139,7 @@ internal sealed class SettingsForm : Form
         _languageCombo.SelectedItem = languageChoices.FirstOrDefault(choice =>
             string.Equals(choice.Code, settings.UiLanguage, StringComparison.OrdinalIgnoreCase)) ?? languageChoices[0];
         _notificationsEnabled.Checked = settings.NotificationsEnabled;
-        _notificationsEnabled.Text = I18n.Get(TextId.NotifyOnThresholdCrossing);
+        _notificationsEnabled.Text = I18n.Get(TextId.BatteryNotifications);
         _notificationsEnabled.AutoSize = true;
         _defaultCritical.Value = Math.Clamp(settings.DefaultCriticalThreshold, 0, 100);
         _defaultLow.Value = Math.Clamp(settings.DefaultLowThreshold, 0, 100);
@@ -334,15 +342,22 @@ internal sealed class SettingsForm : Form
             FixedPanel = FixedPanel.Panel2,
             Panel1MinSize = 380,
             Panel2MinSize = 300,
-            SplitterDistance = 610,
+            SplitterDistance = 656,
             BackColor = Color.FromArgb(220, 223, 228)
         };
         split.Panel1.BackColor = Color.White;
         split.Panel1.Controls.Add(_grid);
         split.Panel2.BackColor = Color.White;
         split.Panel2.Controls.Add(BuildDeviceDetails());
+        split.Layout += (_, _) =>
+        {
+            var maximum = split.ClientSize.Width - split.Panel2MinSize - split.SplitterWidth;
+            if (maximum >= split.Panel1MinSize && split.SplitterDistance > maximum)
+                split.SplitterDistance = maximum;
+        };
 
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 2, ColumnCount = 1 };
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         layout.Controls.Add(toolbar, 0, 0);
@@ -407,6 +422,24 @@ internal sealed class SettingsForm : Form
         titleRow.Controls.Add(titleText);
         panel.Controls.Add(titleRow);
         panel.Controls.Add(_monitorDevice);
+        panel.Controls.Add(new Label { Text = I18n.Get(TextId.BatteryNotifications), AutoSize = true });
+        _notificationMode.Items.AddRange(new object[] { I18n.Get(TextId.AllTransitions), I18n.Get(TextId.CriticalOnly), I18n.Get(TextId.NotificationsOff) });
+        _notificationMode.AccessibleName = I18n.Get(TextId.BatteryNotifications);
+        _notificationMode.SelectedIndexChanged += (_, _) => DetailValueChanged();
+        panel.Controls.Add(_notificationMode);
+        panel.Controls.Add(_pauseStatus);
+        foreach (var (id, hours) in new[] { (TextId.PauseOneHour, 1), (TextId.PauseEightHours, 8), (TextId.ResumeNotifications, 0) })
+        {
+            var button = new Button { Name = id.ToString(), Text = I18n.Get(id), AutoSize = true };
+            button.Click += (_, _) =>
+            {
+                if (SelectedDevice is not { } device) return;
+                device.NotificationsPausedUntil = hours == 0 ? null : DateTimeOffset.Now.AddHours(hours);
+                LoadSelectedDevice();
+            };
+            _pauseButtons.Controls.Add(button);
+        }
+        panel.Controls.Add(_pauseButtons);
         panel.Controls.Add(new Label
         {
             Text = I18n.Get(TextId.NotificationThresholds),
@@ -424,6 +457,20 @@ internal sealed class SettingsForm : Form
             Margin = new Padding(0, 10, 0, 0)
         });
         panel.Controls.Add(buttons);
+        panel.SizeChanged += (_, _) =>
+        {
+            var width = Math.Max(180, panel.ClientSize.Width - panel.Padding.Horizontal - SystemInformation.VerticalScrollBarWidth - 6);
+            titleRow.MaximumSize = new Size(width, 0);
+            titleRow.WrapContents = false;
+            titleText.MaximumSize = new Size(Math.Max(100, width - 66), 0);
+            _detailName.MaximumSize = _detailStatus.MaximumSize = titleText.MaximumSize;
+            _notificationMode.Width = width;
+            _pauseButtons.MaximumSize = buttons.MaximumSize = new Size(width, 0);
+            _pauseStatus.MaximumSize = _monitorDevice.MaximumSize = new Size(width, 0);
+            thresholds.Width = width;
+            foreach (var label in panel.Controls.OfType<Label>())
+                label.MaximumSize = new Size(width, 0);
+        };
         SetDetailControlsEnabled(false);
         return panel;
     }
@@ -574,10 +621,12 @@ internal sealed class SettingsForm : Form
                 device.DisplayName,
                 BluetoothAddress.Normalize(_observed.GetValueOrDefault(device.DeviceId)?.BluetoothAddress)
                     ?? BluetoothAddress.Normalize(device.BluetoothAddress) ?? "—",
-                observed?.BatteryLevel is int level ? $"{level}%" : "—",
+                observed?.BatteryLevel is int level ? CurrentBattery(device.DeviceId, level) : PreviousBattery(device.DeviceId),
                 observed is null ? I18n.Get(TextId.Unavailable) : BandText(band));
             var row = _grid.Rows[rowIndex];
             row.Tag = device;
+            row.Cells["Battery"].ToolTipText = _monitorState.Devices.GetValueOrDefault(device.DeviceId)?.LastObservedAt is { } checkedAt
+                ? BatteryObservationText.CheckedAt(checkedAt) : string.Empty;
             row.Cells["State"].Style.ForeColor = BandColor(band, observed is not null);
             if (string.Equals(device.DeviceId, selectDeviceId, StringComparison.OrdinalIgnoreCase))
                 row.Selected = true;
@@ -588,6 +637,15 @@ internal sealed class SettingsForm : Form
         if (_grid.SelectedRows.Count == 0 && _grid.Rows.Count > 0)
             _grid.Rows[0].Selected = true;
         LoadSelectedDevice();
+    }
+
+    private string CurrentBattery(string id, int level) => _monitorState.Devices.GetValueOrDefault(id)?.LastObservedAt is { } at
+        ? $"{level}%\n{at.ToLocalTime():g}" : $"{level}%";
+
+    private string PreviousBattery(string id)
+    {
+        var text = BatteryObservationText.Previous(_monitorState.Devices.GetValueOrDefault(id));
+        return text.Length == 0 ? "—" : text;
     }
 
     private DeviceSettings? SelectedDevice =>
@@ -619,7 +677,16 @@ internal sealed class SettingsForm : Form
                 : observed.BatteryLevel is int level
                     ? I18n.Format(TextId.BatteryStatus, level, BandText(band))
                     : I18n.Get(TextId.BatteryLevelUnavailable);
+            _notificationMode.SelectedIndex = Enum.IsDefined(device.NotificationMode) ? (int)device.NotificationMode : 0;
+            _pauseStatus.Text = device.NotificationsPausedUntil > DateTimeOffset.Now
+                ? I18n.Format(TextId.PausedUntil, device.NotificationsPausedUntil.Value.ToLocalTime().ToString("g"))
+                : I18n.Get(TextId.NotificationsActive);
             _monitorDevice.Checked = device.IsEnabled;
+            var saved = _monitorState.Devices.GetValueOrDefault(device.DeviceId);
+            if (observed?.BatteryLevel is null && saved?.LastBatteryLevel is not null)
+                _detailStatus.Text += Environment.NewLine + BatteryObservationText.Previous(saved);
+            else if (saved?.LastObservedAt is { } at)
+                _detailStatus.Text += Environment.NewLine + BatteryObservationText.CheckedAt(at);
             _critical.Value = device.CriticalThreshold;
             _low.Value = device.LowThreshold;
             _caution.Value = device.CautionThreshold;
@@ -636,6 +703,7 @@ internal sealed class SettingsForm : Form
             return;
 
         device.IsEnabled = _monitorDevice.Checked;
+        device.NotificationMode = (DeviceNotificationMode)Math.Max(0, _notificationMode.SelectedIndex);
         device.CriticalThreshold = (int)_critical.Value;
         device.LowThreshold = (int)_low.Value;
         device.CautionThreshold = (int)_caution.Value;
@@ -653,6 +721,10 @@ internal sealed class SettingsForm : Form
         if (ReferenceEquals(device, SelectedDevice))
         {
             _updatingDetails = true;
+            _notificationMode.SelectedIndex = Enum.IsDefined(device.NotificationMode) ? (int)device.NotificationMode : 0;
+            _pauseStatus.Text = device.NotificationsPausedUntil > DateTimeOffset.Now
+                ? I18n.Format(TextId.PausedUntil, device.NotificationsPausedUntil.Value.ToLocalTime().ToString("g"))
+                : I18n.Get(TextId.NotificationsActive);
             _monitorDevice.Checked = device.IsEnabled;
             _updatingDetails = false;
         }
@@ -846,6 +918,9 @@ internal sealed class SettingsForm : Form
     private void SetDetailControlsEnabled(bool enabled)
     {
         _monitorDevice.Enabled = enabled;
+        _notificationMode.Enabled = enabled;
+        _pauseButtons.Enabled = enabled;
+        _pauseStatus.Visible = enabled;
         _critical.Enabled = enabled;
         _low.Enabled = enabled;
         _caution.Enabled = enabled;

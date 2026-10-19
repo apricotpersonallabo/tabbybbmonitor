@@ -97,7 +97,20 @@ internal enum TextId
     UpdateCanceled,
     UpdateFailed,
     UpdateUnsupported,
-    UpdateConfirmation
+    UpdateConfirmation,
+    BatteryNotifications,
+    AllTransitions,
+    CriticalOnly,
+    NotificationsOff,
+    PauseOneHour,
+    PauseEightHours,
+    ResumeNotifications,
+    PausedUntil,
+    NotificationsActive,
+    PreviousBattery,
+    LastChecked,
+    LowBatteryTitle,
+    MonitorSaveFailed
 }
 
 internal static partial class I18n
@@ -199,6 +212,8 @@ internal static partial class I18n
 
     public static string Get(TextId id)
     {
+        if (id >= TextId.BatteryNotifications)
+            return MonitorTranslations[CurrentLanguage][(int)id - (int)TextId.BatteryNotifications];
         if (id >= TextId.Updates)
             return UpdateTranslations[CurrentLanguage][(int)id - (int)TextId.Updates];
         if (id == TextId.StartupNotSupported)

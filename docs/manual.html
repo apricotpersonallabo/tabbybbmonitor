@@ -161,12 +161,12 @@
         <article class="usage-card">
           <span class="card-label" data-i18n="menuCardLabel">右クリックメニュー</span>
           <h3 data-i18n="menuCardTitle">必要な操作をすぐ実行する</h3>
-          <p data-i18n="menuCardBody">「今すぐ確認」で電池情報を更新できます。「設定...」で設定画面を開き、「終了」でアプリを終了します。アイコンのダブルクリックでも設定画面を開けます。</p>
+          <p data-i18n="menuCardBody">「今すぐ確認」で電池情報を更新できます。「電池通知」から全体の電池通知を1時間・8時間休止、または再開できます。「設定...」で設定画面を開き、「終了」でアプリを終了します。アイコンのダブルクリックでも設定画面を開けます。</p>
         </article>
         <article class="usage-card">
           <span class="card-label" data-i18n="deviceCardLabel">デバイスタブ</span>
           <h3 data-i18n="deviceCardTitle">機器ごとに監視方法を調整する</h3>
-          <p data-i18n="deviceCardBody">監視のオン／オフ、通知のしきい値、機器の再検出を設定できます。選択したしきい値をすべての機器へ一括適用することもできます。</p>
+          <p data-i18n="deviceCardBody">機器ごとに監視と通知しきい値を設定できます。通知条件は「すべての閾値変化」「危険のみ」「通知しない」から選べ、通知を1時間・8時間休止、または再開できます。機器別の変更は「保存」で適用します。</p>
         </article>
         <article class="usage-card">
           <span class="card-label" data-i18n="generalCardLabel">全般タブ</span>
@@ -181,13 +181,19 @@
         <p data-i18n="updateCardBody">Microsoft Store版は起動時に更新を確認します。更新通知をクリックするか、「ヘルプ」の「更新をチェック」を選びます。更新があれば「更新する」を選択して承認すると、ダウンロード・インストールを開始し、進捗を表示します。アプリが終了する場合があるため設定変更は先に保存してください。インストール要求中は設定画面を閉じられません。キャンセル・失敗時は監視を継続し、再試行できます。必要に応じて更新後にアプリを起動し直してください。起動時に最新だった場合や確認失敗時は通知せず、状態はヘルプに表示します。通常exe実行版やテスト署名版は非対応です。</p>
       </article>
 
+      <article class="usage-card">
+        <h3 data-i18n="monitorUsageTitle">通知休止と前回残量</h3>
+        <p data-i18n="monitorPauseBody">全体・機器別のいずれかが休止中なら、その機器の電池通知を休止します。休止期限は再起動後も維持され、監視と残量表示は継続します。期限切れ・再開後は次の取得成功時に低残量を再確認します。更新通知・取得エラー通知は休止しません。</p>
+        <p data-i18n="monitorPreviousBody">一覧と詳細には、最後に確認できた残量と確認日時を表示します。切断・残量不明時は「前回」と明示し、過去の値で現在の電池状態を判定しません。切断中の機器は「未検出も表示」から確認できます。トレイでも接続中に残量不明となった機器の前回情報を表示します。確認日時はWindowsから取得した時刻で、機器自体の測定時刻ではありません。</p>
+      </article>
+
       <div class="threshold-panel">
         <div class="threshold-heading">
           <div>
             <p class="section-kicker" data-i18n="thresholdKicker">既定の設定</p>
             <h3 data-i18n="thresholdTitle">電池状態のしきい値</h3>
           </div>
-          <p data-i18n="thresholdIntro">残量がしきい値をまたぐと通知します。しきい値は機器ごとに変更できます。</p>
+          <p data-i18n="thresholdIntro">残量がしきい値をまたぐと通知します。起動・再接続時や残量不明からの取得成功時にも、低下・危険の機器を通知します。「危険のみ」では危険帯だけが対象です。同じ残量帯の起動・再接続通知は1時間以内に繰り返さず、危険への悪化は通知します。</p>
         </div>
         <div class="table-scroll" tabindex="0" role="region" data-i18n-aria-label="thresholdTableRegionLabel" aria-label="電池状態のしきい値表">
           <table>

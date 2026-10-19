@@ -9,6 +9,8 @@ internal enum BatteryBand
     Good = 3
 }
 
+internal enum DeviceNotificationMode { AllTransitions, CriticalOnly, Off }
+
 internal sealed record BluetoothBatteryDevice(string Id, string Name, int? BatteryLevel, bool IsConnected)
 {
     public string? BluetoothAddress { get; init; }
@@ -21,6 +23,8 @@ internal sealed class DeviceSettings
     public string DisplayName { get; set; } = string.Empty;
     public string? BluetoothAddress { get; set; }
     public bool IsEnabled { get; set; } = true;
+    public DeviceNotificationMode NotificationMode { get; set; }
+    public DateTimeOffset? NotificationsPausedUntil { get; set; }
     public int CriticalThreshold { get; set; } = 15;
     public int LowThreshold { get; set; } = 35;
     public int CautionThreshold { get; set; } = 70;
@@ -64,6 +68,7 @@ internal sealed class AppSettings
     public string UiLanguage { get; set; } = "system";
     public int PollIntervalSeconds { get; set; } = 30;
     public bool NotificationsEnabled { get; set; } = true;
+    public DateTimeOffset? NotificationsPausedUntil { get; set; }
     public int DefaultCriticalThreshold { get; set; } = 15;
     public int DefaultLowThreshold { get; set; } = 35;
     public int DefaultCautionThreshold { get; set; } = 70;

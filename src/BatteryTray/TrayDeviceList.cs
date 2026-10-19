@@ -29,12 +29,14 @@ internal static class TrayDeviceList
         finally { menu.ResumeLayout(); }
     }
 
-    public static IReadOnlyList<TrayDeviceLine> Create(DeviceSnapshot snapshot)
+    public static IReadOnlyList<TrayDeviceLine> Create(DeviceSnapshot snapshot, BatteryMonitorState? state = null)
     {
         var lines = snapshot.Devices.Where(device => device.IsConnected)
             .OrderBy(device => device.Name, StringComparer.CurrentCultureIgnoreCase)
             .Select(device => new TrayDeviceLine(device.Id,
-                $"{device.Name}  {(device.BatteryLevel is int level ? $"{level}%" : I18n.Get(TextId.BatteryUnknown))}"))
+                $"{device.Name}  {(device.BatteryLevel is int level ? $"{level}%" : I18n.Get(TextId.BatteryUnknown))}" +
+                (device.BatteryLevel is null && state?.Devices.GetValueOrDefault(device.Id) is { } saved &&
+                    BatteryObservationText.Previous(saved) is { Length: > 0 } text ? $" · {text}" : string.Empty)))
             .ToList();
         if (lines.Count == 0 && (snapshot.HasResult || !snapshot.IsRefreshing && snapshot.Error is null))
             lines.Add(new(null, I18n.Get(TextId.NoBluetoothDevices)));

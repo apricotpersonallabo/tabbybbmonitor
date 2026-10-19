@@ -82,13 +82,15 @@
       </section>
 
       <section id="local-data" class="policy-section" aria-labelledby="local-data-title">
-        <h2 id="local-data-title" data-i18n="localDataTitle">3. 端末内に保存する設定</h2>
-        <p data-i18n="localDataIntro">本アプリは次の設定を、利用者のWindowsアカウントのローカル領域にある設定ファイルへ保存します。</p>
+        <h2 id="local-data-title" data-i18n="localDataTitle">3. 端末内に保存する情報</h2>
+        <p data-i18n="localDataIntro">本アプリは次の設定と監視状態を、利用者のWindowsアカウントのローカル領域へ保存します。</p>
         <ul>
-          <li data-i18n="localDataDevices">監視対象の機器名、機器識別子、監視の有効／無効および通知しきい値</li>
-          <li data-i18n="localDataPreferences">確認間隔、通知の有効／無効、表示言語および初回設定の完了状態</li>
+          <li data-i18n="localDataDevices">監視対象の機器名、機器識別子、監視の有効／無効、通知しきい値、機器別の通知条件と休止期限</li>
+          <li data-i18n="localDataPreferences">確認間隔、通知の有効／無効、全体の通知休止期限、表示言語および初回設定の完了状態</li>
         </ul>
         <p><span data-i18n="localDataPath">設定ファイルの保存先：</span> <code>%LOCALAPPDATA%\BatteryTray\settings.json</code></p>
+        <p data-i18n="localDataMonitor">機器ごとの最新1件の取得成功残量と確認日時、通知重複を抑えるための最終通知日時と残量帯を保存します。連続した残量履歴やグラフ用データは保存しません。外部には送信しません。</p>
+        <p><span data-i18n="monitorDataPath">監視状態ファイルの保存先：</span> <code>%LOCALAPPDATA%\BatteryTray\monitor-state.json</code></p>
         <p data-i18n="localDataStartup">サインイン時の自動起動状態はWindowsのStartupTaskとしてWindowsが管理し、本アプリの設定ファイルには重複して保存しません。</p>
       </section>
 
@@ -121,7 +123,7 @@
           <li data-i18n="controlMonitoring">設定画面で機器ごとの監視を無効にする</li>
           <li data-i18n="controlNotifications">通知、自動起動または定期確認を変更する</li>
           <li data-i18n="controlDeviceSettings">未検出機器の設定をアプリから削除する</li>
-          <li data-i18n="controlDeleteFile">本アプリを終了し、設定ファイルを削除してローカル設定をすべて消去する</li>
+          <li data-i18n="controlDeleteFile">本アプリを終了し、settings.jsonとmonitor-state.jsonを削除して設定と保存済みの監視状態を消去する</li>
           <li data-i18n="controlUninstall">Windowsの設定から本アプリをアンインストールする</li>
         </ul>
         <p data-i18n="controlsRemote">開発者は利用者の端末内の情報へアクセスできないため、遠隔操作による参照、修正または削除はできません。</p>

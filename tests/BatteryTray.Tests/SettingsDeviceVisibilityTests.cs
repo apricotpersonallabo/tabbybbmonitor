@@ -264,6 +264,95 @@ public sealed class SettingsDeviceVisibilityTests
             Assert.True(Field<Label>(form, "_startupNote").Visible);
     });
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void NotificationEditsAndObservationUpdatesAreIndependent(bool save) => RunSta(() =>
+    {
+        var settings = new AppSettings { Devices = [new() { DeviceId = "mouse", DisplayName = "Mouse" }] };
+        var state = new BatteryMonitorState();
+        var monitor = new BatteryMonitor(state);
+        var now = DateTimeOffset.Now;
+        monitor.Evaluate(settings, [new("mouse", "Mouse", 65, true) { ObservedAt = now }], now);
+        using var service = new DeviceRefreshService(new ControlledBatteryProvider());
+        using var form = new SettingsForm(settings, [new("mouse", "Mouse", 65, true)],
+            new UnsupportedStartup(), refreshService: service, monitorState: state);
+        Field<ComboBox>(form, "_notificationMode").SelectedIndex = 1;
+        var pauseButtons = Field<FlowLayoutPanel>(form, "_pauseButtons");
+        // Invoke the click handler without making the test window visible.
+        var pause = Assert.IsType<Button>(pauseButtons.Controls["PauseOneHour"]);
+        typeof(Button).GetMethod("OnClick", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(pause, [EventArgs.Empty]);
+        var grid = Field<DataGridView>(form, "_grid");
+        var edited = (DeviceSettings)Assert.Single(Rows(grid)).Tag!;
+        Assert.Equal(DeviceNotificationMode.CriticalOnly, edited.NotificationMode);
+        Assert.True(edited.NotificationsPausedUntil > now);
+
+        // Begin a fetch, save/cancel while it is pending, then complete it against the live monitor.
+        form.ApplyRefreshSnapshot(new([], true, true, null));
+        if (save)
+        {
+            typeof(SettingsForm).GetMethod("SaveClicked", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .Invoke(form, [null, EventArgs.Empty]);
+            Assert.Equal(DeviceNotificationMode.CriticalOnly, form.Result.Devices[0].NotificationMode);
+            Assert.NotNull(form.Result.Devices[0].NotificationsPausedUntil);
+        }
+        else form.Dispose();
+        monitor.Evaluate(settings, [new("mouse", "Mouse", 60, true) { ObservedAt = now.AddMinutes(1) }], now.AddMinutes(1));
+        Assert.Equal(60, state.Devices["mouse"].LastBatteryLevel);
+        Assert.Equal(now.AddMinutes(1), state.Devices["mouse"].LastObservedAt);
+        Assert.Equal(DeviceNotificationMode.AllTransitions, settings.Devices[0].NotificationMode);
+        Assert.Null(settings.Devices[0].NotificationsPausedUntil);
+    });
+
+    [Theory]
+    [InlineData("ja")]
+    [InlineData("de")]
+    [InlineData("ar")]
+    public void PreviousReadingAndNotificationControlsRenderInSupportedLanguages(string language) => RunSta(() =>
+    {
+        I18n.SetLanguage(language);
+        try
+        {
+            var state = new BatteryMonitorState
+            {
+                Devices = new(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["mouse"] = new() { LastBatteryLevel = 65, LastObservedAt = DateTimeOffset.Now.AddDays(-1) }
+                }
+            };
+            using var service = new DeviceRefreshService(new ControlledBatteryProvider());
+            using var form = new SettingsForm(new AppSettings { Devices = [new() { DeviceId = "mouse", DisplayName = "Bluetooth mouse" }] },
+                [new("mouse", "Bluetooth mouse", null, true)], new UnsupportedStartup(), refreshService: service, monitorState: state);
+            form.Size = new System.Drawing.Size(900, 560);
+            form.ShowInTaskbar = false;
+            form.StartPosition = FormStartPosition.Manual;
+            form.Location = new System.Drawing.Point(-32000, -32000);
+            form.Opacity = 0;
+            form.Show();
+            Application.DoEvents();
+            Assert.Contains("65", Assert.IsType<string>(Field<DataGridView>(form, "_grid").Rows[0].Cells["Battery"].Value));
+            Assert.Contains("65", Field<Label>(form, "_detailStatus").Text);
+            Assert.Equal(language == "ar", form.RightToLeftLayout);
+            Assert.Equal(3, Field<ComboBox>(form, "_notificationMode").Items.Count);
+            var combo = Field<ComboBox>(form, "_notificationMode");
+            var details = combo.Parent!;
+            Assert.True(details.RectangleToScreen(details.ClientRectangle).Contains(combo.RectangleToScreen(combo.ClientRectangle)),
+                $"Notification mode must fit: details={details.ClientSize}, combo={combo.Bounds}");
+            var split = Assert.IsType<SplitContainer>(details.Parent!.Parent);
+            Assert.True(split.Right <= split.Parent!.ClientSize.Width,
+                $"Details pane must fit: split={split.Bounds}, layout={split.Parent.ClientSize}");
+            using var bitmap = new System.Drawing.Bitmap(form.Width, form.Height);
+            form.DrawToBitmap(bitmap, new System.Drawing.Rectangle(System.Drawing.Point.Empty, form.Size));
+            if (Environment.GetEnvironmentVariable("TABBY_LAYOUT_OUTPUT_DIR") is { } output)
+                bitmap.Save(Path.Combine(output, $"TabbyBBMonitor-monitor-{language}.png"));
+            form.ApplyRefreshSnapshot(new([], true, false, null));
+            Field<CheckBox>(form, "_showUnavailable").Checked = true;
+            Assert.Contains("65", Assert.IsType<string>(Assert.Single(Rows(Field<DataGridView>(form, "_grid"))).Cells["Battery"].Value));
+            Assert.Contains(I18n.Get(TextId.CurrentlyUnavailable), Field<Label>(form, "_detailStatus").Text);
+        }
+        finally { I18n.SetLanguage("system"); }
+    });
+
     private static void PumpUntil(Func<bool> completed)
     {
         var deadline = Environment.TickCount64 + 5000;

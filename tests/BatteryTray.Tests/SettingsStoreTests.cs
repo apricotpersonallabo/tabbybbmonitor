@@ -79,6 +79,25 @@ public sealed class SettingsStoreTests : IDisposable
     private SettingsStore CreateStore() => new(SettingsPath());
 
     [Fact]
+    public void NotificationModeAndBothPauseDeadlinesSurviveRestart()
+    {
+        var deadline = DateTimeOffset.Now.AddHours(8);
+        var settings = new AppSettings
+        {
+            NotificationsPausedUntil = deadline,
+            Devices = [new() { DeviceId = "mouse", NotificationMode = DeviceNotificationMode.CriticalOnly,
+                NotificationsPausedUntil = deadline.AddHours(1) }]
+        };
+        var store = CreateStore();
+        store.Save(settings);
+        var restored = store.Load().Settings;
+        Assert.Equal(deadline, restored.NotificationsPausedUntil);
+        var device = Assert.Single(restored.Devices);
+        Assert.Equal(DeviceNotificationMode.CriticalOnly, device.NotificationMode);
+        Assert.Equal(deadline.AddHours(1), device.NotificationsPausedUntil);
+    }
+
+    [Fact]
     public void BluetoothAddressSurvivesSaveAndReload()
     {
         var settings = new AppSettings();

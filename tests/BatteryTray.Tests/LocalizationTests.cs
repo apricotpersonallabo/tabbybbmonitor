@@ -19,6 +19,10 @@ public sealed class LocalizationTests
             foreach (var id in Enum.GetValues<TextId>().Where(id => id >= TextId.Updates))
                 Assert.False(string.IsNullOrWhiteSpace(I18n.Get(id)));
             Assert.Contains("42", I18n.Format(TextId.UpdateInstalling, 42));
+            Assert.Contains("42", I18n.Format(TextId.PreviousBattery, 42, "CHECKED"));
+            Assert.Contains("CHECKED", I18n.Format(TextId.PreviousBattery, 42, "CHECKED"));
+            Assert.Contains("CHECKED", I18n.Format(TextId.LastChecked, "CHECKED"));
+            Assert.Contains("CHECKED", I18n.Format(TextId.PausedUntil, "CHECKED"));
         }
 
         I18n.SetLanguage("system");

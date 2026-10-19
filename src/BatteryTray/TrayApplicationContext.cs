@@ -12,7 +12,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly IStartupRegistration _startupRegistration = new StartupRegistration();
     private readonly StoreUpdateService _updateService;
     private bool _updateBalloonVisible;
-    private readonly Dictionary<string, BatteryBand> _previousBands = new(StringComparer.OrdinalIgnoreCase);
+    private readonly BatteryMonitorStore _monitorStore = new();
+    private readonly BatteryMonitor _monitor;
+    private bool _stateSaveWarningShown;
     private readonly Control _dispatcher = new();
     private readonly RegisteredWaitHandle _activationRegistration;
     private readonly SettingsLoadResult _loadResult;
@@ -20,7 +22,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private IReadOnlyList<BluetoothBatteryDevice> _devices = [];
     private Icon? _currentIcon;
     private SettingsForm? _settingsForm;
-    private bool _hasCompletedInitialRefresh;
+
 
     private bool _isExiting;
     private readonly bool _isStartupTask;
@@ -31,6 +33,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _updateService = new(new StoreUpdateProvider(), _dispatcher.Handle);
         _loadResult = _store.Load();
         _settings = _loadResult.Settings;
+        _monitor = new(_monitorStore.Load());
         I18n.SetLanguage(_settings.UiLanguage);
         _notifyIcon = new NotifyIcon
         {
@@ -39,7 +42,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         };
         _tooltip = new TrayTooltipController(
             () => _isExiting || _menu.Visible || _settingsForm is { IsDisposed: false },
-            () => TrayDeviceList.Create(_refreshService.Snapshot),
+            () => TrayDeviceList.Create(_refreshService.Snapshot, _monitor.State),
             () => _ = RefreshAsync(showErrors: false));
         _notifyIcon.MouseMove += (_, _) => _tooltip.ObserveMouse();
         _notifyIcon.MouseDown += (_, _) => _tooltip.Dismiss();
@@ -146,7 +149,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             _devices = snapshot.Devices;
             MergeDiscoveredDevices();
             EvaluateTransitions();
-            _hasCompletedInitialRefresh = true;
+            SaveMonitorState();
         }
         UpdatePresentation();
     }
@@ -167,6 +170,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
                 if (sameName.Length == 1)
                 {
                     configured = sameName[0];
+                    if (_monitor.State.Devices.Remove(configured.DeviceId, out var saved))
+                        _monitor.State.Devices[device.Id] = saved;
                     configured.DeviceId = device.Id;
                 }
                 else
@@ -190,39 +195,40 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private void EvaluateTransitions()
     {
-        foreach (var device in _devices)
-        {
-            var configured = FindSettings(device.Id);
-            if (configured is null || !configured.IsEnabled)
-                continue;
-
-            var currentBand = configured.Classify(device.BatteryLevel);
-            if (_previousBands.TryGetValue(device.Id, out var previousBand) &&
-                previousBand != currentBand &&
-                previousBand != BatteryBand.Unknown &&
-                currentBand != BatteryBand.Unknown &&
-                _hasCompletedInitialRefresh)
-            {
-                NotifyTransition(device, previousBand, currentBand);
-            }
-
-            _previousBands[device.Id] = currentBand;
-        }
+        var notices = _monitor.Evaluate(_settings, _devices, DateTimeOffset.Now);
+        if (notices.Count == 0) return;
+        _updateBalloonVisible = false;
+        var lines = notices.Select(notice => notice.PreviousBand is { } previous
+            ? $"{notice.Device.Name}: {I18n.Format(TextId.TransitionMessage, notice.Device.BatteryLevel, BandText(previous), BandText(notice.Band))}"
+            : $"{notice.Device.Name}: {notice.Device.BatteryLevel}% ({BandText(notice.Band)})");
+        _notifyIcon.ShowBalloonTip(7000, I18n.Get(TextId.LowBatteryTitle),
+            string.Join(Environment.NewLine, lines),
+            notices.Any(notice => notice.Band <= BatteryBand.Low) ? ToolTipIcon.Warning : ToolTipIcon.Info);
     }
 
-    private void NotifyTransition(BluetoothBatteryDevice device, BatteryBand previous, BatteryBand current)
+    private void SaveMonitorState()
     {
-        if (!_settings.NotificationsEnabled)
-            return;
-
-        var direction = I18n.Get(current < previous ? TextId.DirectionDecreased : TextId.DirectionRecovered);
-        var icon = current <= BatteryBand.Low ? ToolTipIcon.Warning : ToolTipIcon.Info;
+        if (_monitorStore.Save(_monitor.State)) { _stateSaveWarningShown = false; return; }
+        if (_stateSaveWarningShown) return;
+        _stateSaveWarningShown = true;
         _updateBalloonVisible = false;
-        _notifyIcon.ShowBalloonTip(
-            7000,
-            I18n.Format(TextId.TransitionTitle, device.Name, direction),
-            I18n.Format(TextId.TransitionMessage, device.BatteryLevel, BandText(previous), BandText(current)),
-            icon);
+        _notifyIcon.ShowBalloonTip(5000, I18n.Get(TextId.SettingsError),
+            I18n.Get(TextId.MonitorSaveFailed), ToolTipIcon.Warning);
+    }
+
+    private void PauseNotifications(int hours)
+    {
+        _settings.NotificationsPausedUntil = hours == 0 ? null : DateTimeOffset.Now.AddHours(hours);
+        // Record suppression immediately, including pauses resumed before the next poll.
+        if (hours != 0) _monitor.Suppress(_settings.Devices.Select(device => device.DeviceId));
+        try { _store.Save(_settings); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _updateBalloonVisible = false;
+            _notifyIcon.ShowBalloonTip(5000, I18n.Get(TextId.SettingsError), ex.Message, ToolTipIcon.Warning);
+        }
+        BuildContextMenu();
+        if (hours == 0) _ = RefreshAsync(showErrors: false);
     }
 
     private void UpdatePresentation()
@@ -242,6 +248,14 @@ internal sealed class TrayApplicationContext : ApplicationContext
             var settings = new ToolStripMenuItem { Name = "Settings" };
             settings.Click += (_, _) => ShowSettings();
             _menu.Items.Add(settings);
+            var notificationMenu = new ToolStripMenuItem { Name = "BatteryNotifications" };
+            foreach (var (name, hours) in new[] { ("PauseOneHour", 1), ("PauseEightHours", 8), ("ResumeNotifications", 0) })
+            {
+                var item = new ToolStripMenuItem { Name = name };
+                item.Click += (_, _) => PauseNotifications(hours);
+                notificationMenu.DropDownItems.Add(item);
+            }
+            _menu.Items.Add(notificationMenu);
             _menu.Items.Add(new ToolStripSeparator());
             var exit = new ToolStripMenuItem { Name = "Exit" };
             exit.Click += (_, _) => ExitApplication();
@@ -257,7 +271,16 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _menu.Items["Refresh"]!.Text = I18n.Get(TextId.RefreshNow);
         _menu.Items["Settings"]!.Text = I18n.Get(TextId.SettingsMenu);
         _menu.Items["Exit"]!.Text = I18n.Get(TextId.Exit);
-        TrayDeviceList.UpdateMenu(_menu, _deviceSeparator, TrayDeviceList.Create(_refreshService.Snapshot),
+        var notifications = (ToolStripMenuItem)_menu.Items["BatteryNotifications"]!;
+        notifications.Text = I18n.Get(TextId.BatteryNotifications);
+        notifications.ToolTipText = _settings.NotificationsPausedUntil > DateTimeOffset.Now
+            ? I18n.Format(TextId.PausedUntil, _settings.NotificationsPausedUntil.Value.ToLocalTime().ToString("g"))
+            : I18n.Get(TextId.NotificationsActive);
+        notifications.Checked = _settings.NotificationsPausedUntil > DateTimeOffset.Now;
+        foreach (ToolStripMenuItem item in notifications.DropDownItems)
+            item.Text = I18n.Get(Enum.Parse<TextId>(item.Name!));
+        notifications.DropDownItems["ResumeNotifications"]!.Enabled = notifications.Checked;
+        TrayDeviceList.UpdateMenu(_menu, _deviceSeparator, TrayDeviceList.Create(_refreshService.Snapshot, _monitor.State),
             id => FindSettings(id)?.IsEnabled == true);
     }
 
@@ -280,7 +303,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
 
         isOnboarding |= !_settings.OnboardingCompleted;
-        using var form = new SettingsForm(_settings, _devices, _startupRegistration, isOnboarding, _refreshService, _updateService);
+        using var form = new SettingsForm(_settings, _devices, _startupRegistration, isOnboarding, _refreshService, _updateService, _monitor.State);
         _settingsForm = form;
         if (showUpdates) form.ShowUpdatePage();
         try
@@ -292,12 +315,21 @@ internal sealed class TrayApplicationContext : ApplicationContext
                 return;
             }
 
+            var globalPause = _settings.NotificationsPausedUntil;
+            _monitor.Suppress(_settings.Devices.Where(device => device.NotificationsPausedUntil > DateTimeOffset.Now)
+                .Select(device => device.DeviceId));
+            _monitor.Suppress(form.Result.Devices.Where(device => device.NotificationsPausedUntil > DateTimeOffset.Now)
+                .Select(device => device.DeviceId));
             _settings = form.Result;
+            _settings.NotificationsPausedUntil = globalPause;
+            _monitor.Reconfigure(_settings);
+            var retained = _settings.Devices.Select(device => device.DeviceId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (var id in _monitor.State.Devices.Keys.Where(id => !retained.Contains(id)).ToArray())
+                _monitor.State.Devices.Remove(id);
+            SaveMonitorState();
             I18n.SetLanguage(_settings.UiLanguage);
             _store.Save(_settings);
             ApplyInterval(start: true);
-            _previousBands.Clear();
-            _hasCompletedInitialRefresh = false;
             BuildContextMenu();
             _ = RefreshAsync(showErrors: true);
         }

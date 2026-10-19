@@ -27,5 +27,7 @@
               skipProperties="true"
               skipEvents="true"
               skipStringHiding="true" />
+    <SkipType name="BatteryTray.BatteryMonitorState" skipMethods="true" skipFields="true" skipProperties="true" skipEvents="true" skipStringHiding="true" />
+    <SkipType name="BatteryTray.DeviceMonitorState" skipMethods="true" skipFields="true" skipProperties="true" skipEvents="true" skipStringHiding="true" />
   </Module>
 </Obfuscator>

@@ -6,6 +6,18 @@ namespace BatteryTray.Tests;
 public sealed class TrayPresentationTests
 {
     [Fact]
+    public void UnknownConnectedDeviceShowsPreviousReadingWithoutExposingDisconnectedDevices()
+    {
+        var state = new BatteryMonitorState
+        {
+            Devices = new() { ["mouse"] = new() { LastBatteryLevel = 65, LastObservedAt = DateTimeOffset.Now.AddDays(-1) } }
+        };
+        var lines = TrayDeviceList.Create(new([new("mouse", "Mouse", null, true), new("off", "Off", 20, false)], true, false, null), state);
+        Assert.Contains("65", Assert.Single(lines).Text);
+        Assert.Contains(I18n.Get(TextId.BatteryUnknown), lines[0].Text);
+    }
+
+    [Fact]
     public void SharedListContainsOnlyConnectedDevicesInNameOrderWithBatteryOrUnknown()
     {
         var lines = TrayDeviceList.Create(new(
