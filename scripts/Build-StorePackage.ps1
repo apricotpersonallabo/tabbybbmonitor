@@ -8,8 +8,7 @@ param(
     [string]$Version,
     [ValidateSet('x64', 'arm64')]
     [string[]]$Architectures,
-    [switch]$AllowPlaceholderIdentity,
-    [switch]$SkipObfuscation
+    [switch]$AllowPlaceholderIdentity
 )
 
 Set-StrictMode -Version Latest
@@ -68,38 +67,6 @@ function ConvertTo-XmlText([string]$Value) {
     return [Security.SecurityElement]::Escape($Value)
 }
 
-function Invoke-Obfuscation {
-    param(
-        [Parameter(Mandatory)][string]$InputDirectory,
-        [Parameter(Mandatory)][string]$WorkingDirectory,
-        [Parameter(Mandatory)][string]$MapDestination
-    )
-
-    $outputDirectory = Join-Path $WorkingDirectory 'output'
-    $mapping = Join-Path $WorkingDirectory 'obfuscation-map.txt'
-    New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
-    $configTemplate = Get-Content -LiteralPath (Join-Path $repositoryRoot 'obfuscation\obfuscar.xml.template') -Raw
-    $inputAssembly = Join-Path $InputDirectory 'BatteryTray.dll'
-    $config = $configTemplate.Replace('@@INPUT_PATH@@', (ConvertTo-XmlText $InputDirectory))
-    $config = $config.Replace('@@OUTPUT_PATH@@', (ConvertTo-XmlText $outputDirectory))
-    $config = $config.Replace('@@LOG_PATH@@', (ConvertTo-XmlText $mapping))
-    $config = $config.Replace('@@INPUT_ASSEMBLY@@', (ConvertTo-XmlText $inputAssembly))
-    $configPath = Join-Path $WorkingDirectory 'obfuscar.xml'
-    [IO.File]::WriteAllText($configPath, $config, [Text.UTF8Encoding]::new($false))
-
-    Invoke-Checked { dotnet tool run obfuscar.console -- $configPath | Out-Null } 'Obfuscar'
-    $obfuscatedAssembly = Join-Path $outputDirectory 'BatteryTray.dll'
-    if (-not (Test-Path -LiteralPath $obfuscatedAssembly -PathType Leaf)) {
-        throw "Obfuscar did not create $obfuscatedAssembly."
-    }
-    Copy-Item -LiteralPath $obfuscatedAssembly -Destination $inputAssembly -Force
-
-    if (-not (Test-Path -LiteralPath $mapping -PathType Leaf)) {
-        throw "Obfuscar did not create the rename map: $mapping"
-    }
-    Copy-Item -LiteralPath $mapping -Destination $MapDestination -Force
-}
-
 function New-StoreAsset {
     param(
         [Parameter(Mandatory)][string]$Path,
@@ -145,9 +112,6 @@ function New-StoreAsset {
 
 $toolsProject = Join-Path $repositoryRoot 'build\StorePackaging\StorePackaging.csproj'
 Invoke-Checked { dotnet restore $toolsProject --verbosity minimal } 'Windows SDK BuildTools restore'
-if (-not $SkipObfuscation) {
-    Invoke-Checked { dotnet tool restore --tool-manifest (Join-Path $repositoryRoot '.config\dotnet-tools.json') } 'Obfuscar tool restore'
-}
 
 $buildToolsRootOutput = dotnet msbuild $toolsProject -getProperty:PkgMicrosoft_Windows_SDK_BuildTools -nologo
 if ($LASTEXITCODE -ne 0) { throw 'Windows SDK BuildTools path could not be resolved.' }
@@ -201,12 +165,6 @@ foreach ($architecture in $Architectures) {
             -o $publishRoot --verbosity minimal
     } "dotnet publish ($architecture)"
 
-    if (-not $SkipObfuscation) {
-        $obfuscationRoot = Join-Path $architectureRoot 'obfuscation'
-        New-Item -ItemType Directory -Path $obfuscationRoot -Force | Out-Null
-        $mapDestination = Join-Path $artifactsRoot "BatteryTray_${Version}_${architecture}_obfuscation-map.txt"
-        Invoke-Obfuscation -InputDirectory $publishRoot -WorkingDirectory $obfuscationRoot -MapDestination $mapDestination
-    }
     Copy-Item -Path (Join-Path $publishRoot '*') -Destination $appRoot -Recurse -Force
 
     New-StoreAsset -Path (Join-Path $assetRoot 'StoreLogo.png') -Width 50 -Height 50
@@ -258,6 +216,9 @@ foreach ($architecture in $Architectures) {
     $packagePath = Join-Path $artifactsRoot "BatteryTray_${Version}_${architecture}.msix"
     Invoke-Checked { & $makeAppx pack /d $layoutRoot /p $packagePath /o | Out-Null } "MSIX pack ($architecture)"
     $packages.Add($packagePath)
+    if ($architecture -eq 'x64') {
+        & (Join-Path $PSScriptRoot 'Test-PackagedStartup.ps1') -PackagePath $packagePath -MakeAppxPath $makeAppx
+    }
 }
 
 $submissionPackage = $packages[0]
@@ -283,5 +244,4 @@ Write-Output ''
 Write-Output 'Microsoft Store package build completed.'
 Write-Output "Store upload: $uploadPath"
 Write-Output "Package:      $submissionPackage"
-Write-Output "Obfuscation:  $(if ($SkipObfuscation) { 'disabled' } else { 'enabled' })"
 Write-Output 'The package is intentionally unsigned. Microsoft Store re-signs submitted MSIX packages.'

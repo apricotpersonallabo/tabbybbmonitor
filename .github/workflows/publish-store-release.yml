@@ -71,7 +71,7 @@ jobs:
       - name: Test Store submission with mocked HTTP
         run: .\tests\StoreSubmission\Test-SubmitStorePackage.ps1
 
-      - name: Build obfuscated Store packages
+      - name: Build and smoke-test Store packages
         run: .\scripts\Build-StorePackage.ps1 -Architectures x64,arm64
 
       - name: Upload all packages and publish release

@@ -91,7 +91,7 @@ pwsh -NoLogo -NoProfile -File .\scripts\Build-StorePackage.ps1
 
 「Actions > Publish Store Release > Run workflow」でビルド対象のブランチを選択し、手動実行します。`packaging/store-settings.json` の `Version` を使い、実行時のコミットにバージョンタグ（例: `v1.1.0.0`）を付けて、正式なRelease `TabbyBBMonitor 1.1.0.0` を公開します。ワークフローを追加しただけでは公開されません。
 
-Releaseビルド・単体テストの成功後、正式なStore Identityと既定の難読化を使用してx64／ARM64をビルドします。Releaseには各アーキテクチャの `.msix` 2ファイル、`.msixbundle`、`.msixupload` の計4ファイルを添付します。難読化対応表と中間ファイルは公開しません。添付物は未署名のStore提出用であり、そのままインストールするための署名済み配布物ではありません。ビルド・Release公開はここで完了し、Store提出は別の「Submit Store Release」で実行します。
+Releaseビルド・単体テストの成功後、正式なStore Identityを使用してx64／ARM64をビルドします。x64ではMSIXから展開した実行ファイルで起動時メニューの検証を行い、失敗した場合は公開を停止します。Releaseには各アーキテクチャの `.msix` 2ファイル、`.msixbundle`、`.msixupload` の計4ファイルを添付します。中間ファイルは公開しません。添付物は未署名のStore提出用であり、そのままインストールするための署名済み配布物ではありません。ビルド・Release公開はここで完了し、Store提出は別の「Submit Store Release」で実行します。
 
 同名タグまたはRelease（下書きを含む）が存在すると、上書きせず失敗します。次の公開前にバージョンを更新してください。アップロード中に失敗した場合は下書きが残ることがあります。その場合は内容を確認し、不要な下書きと同名タグを手動で削除してから再実行するか、バージョンを更新します。全添付物のアップロード完了後にのみ正式公開します。
 
@@ -128,7 +128,7 @@ Identity・Publisher不一致、進行中申請の存在、未公開アプリ、
 
 APIで作成した申請をPartner Center画面で編集すると、その後APIで更新・commitできなくなる場合があります。画面から編集した申請はそのまま画面で提出するか、不要なら削除して新しく作成してください。API非対応機能によるエラーが出た場合もPartner Centerで提出します。
 
-提出処理のHTTPモックテスト（認証情報・ネットワーク接続不要）は、PowerShell 7で実行できます。PR、masterへのpush、Release公開前にも実行します。
+提出処理のHTTPモックテスト（認証情報・ネットワーク接続不要）は、PowerShell 7で実行できます。PR、main／masterへのpush、Release公開前にも実行します。
 
 ```powershell
 pwsh -NoLogo -NoProfile -File .\tests\StoreSubmission\Test-SubmitStorePackage.ps1
@@ -136,13 +136,13 @@ pwsh -NoLogo -NoProfile -File .\tests\StoreSubmission\Test-SubmitStorePackage.ps
 
 ### MSIXパッケージテスト
 
-テスト専用の一意なIdentityを使ってx64／ARM64のMSIX、bundle、msixuploadを生成し、マニフェスト、StartupTask、capability、自己完結ランタイム、18言語の`resources.pri`を展開検査できます。通常テストは証明書ストアやインストール済みアプリを変更しません。
+テスト専用の一意なIdentityを使ってx64／ARM64のMSIX、bundle、msixuploadを生成し、マニフェスト、StartupTask、capability、自己完結ランタイム、18言語の`resources.pri`を展開検査できます。x64はパッケージ内の実行ファイルによる起動時メニュー検証も行います。通常テストは証明書ストアやインストール済みアプリを変更しません。
 
 ```powershell
 pwsh -NoLogo -NoProfile -File .\tests\MSIX\Test-StorePackage.ps1
 ```
 
-PRと`master`へのpushでは、GitHub Actionsの「MSIX Tests」がReleaseビルド、xUnit、上記のMSIX検査を実行します。テスト署名とサイドロード検査はGitHub-hosted Windows runnerだけで実行し、ローカルでは生成しません。
+PRと`main`／`master`へのpushでは、GitHub Actionsの「MSIX Tests」がReleaseビルド、xUnit、上記のMSIX検査を実行します。テスト署名とサイドロード検査はGitHub-hosted Windows runnerだけで実行し、ローカルでは生成しません。
 
 署名済みテストbundleが必要な場合は、GitHubの「Actions > MSIX Tests > Run workflow」から手動実行します。成功したrunの`BatteryTray-MSIX-Test-<run-number>` artifactには、14日間有効な一時証明書で署名した`.msixbundle`と、公開鍵だけを含む`.cer`が保存されます。artifactの保存期間は7日間で、PFX、秘密鍵、Store提出用`.msixupload`は含まれません。
 
@@ -164,22 +164,13 @@ Remove-Item -LiteralPath "Cert:\LocalMachine\TrustedPeople\$($certificate.Thumbp
 
 ローカルMSIX検査の成功時は一時成果物を自動削除します。調査のため残す場合は`-KeepArtifacts`を追加してください。失敗時は診断用に`.store-build\<test-version>`と`artifacts\store\<test-version>`を保持します。
 
-### 難読化
+### 配布成果物の起動時検証
 
-Storeビルドでは、安定版Obfuscarをローカル.NETツールとして復元し、`BatteryTray.dll` に次の保護を自動適用します。
+`Build-StorePackage.ps1`はx64 MSIXの生成後に、パッケージから展開した`BatteryTray.exe --startup-smoke-test`を実行します。この内部検証モードはWinForms初期化と通常起動と共通の通知メニュー生成を行い、18言語の表示および1時間休止・8時間休止・再開を検証します。成功時は終了コード0、失敗時は診断情報と非0を返し、30秒以内に終了しない場合もビルドを停止します。
 
-- 内部型、メソッド、フィールド、プロパティ、イベント名の変更
-- 文字列定数の隠蔽
-- 難読化名をアセンブリ全体で一意化
-- 設定JSON用モデルを除外し、アップデート後も既存設定との互換性を維持
+検証モードは常駐処理、既存プロセスへの通知、Bluetooth検索、Store更新、設定ファイルの読み書きを行いません。MSIXのインストールや証明書変更も不要です。ARM64はパッケージ内容を検証し、ARM64実機での起動確認とは区別します。通常のアプリ起動全体やWindows通知の表示を自動検証するものではありません。
 
-設定は `obfuscation\obfuscar.xml.template` にあります。障害解析用の名前対応表は `artifacts\store\<version>\*_obfuscation-map.txt` に保存され、MSIXには含まれません。このファイルは公開せず安全に保管してください。
-
-問題の切り分けなどで一時的に無効化する場合だけ、`-SkipObfuscation` を指定します。
-
-```powershell
-pwsh -NoLogo -NoProfile -File .\scripts\Build-StorePackage.ps1 -SkipObfuscation
-```
+### ビルド時の設定指定
 
 CIなどで設定ファイルを変更しない場合は、値を引数でも指定できます。
 

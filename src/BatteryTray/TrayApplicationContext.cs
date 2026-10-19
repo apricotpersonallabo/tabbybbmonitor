@@ -218,9 +218,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private void PauseNotifications(int hours)
     {
-        _settings.NotificationsPausedUntil = hours == 0 ? null : DateTimeOffset.Now.AddHours(hours);
-        // Record suppression immediately, including pauses resumed before the next poll.
-        if (hours != 0) _monitor.Suppress(_settings.Devices.Select(device => device.DeviceId));
+        BatteryNotificationMenu.ApplyPause(_settings, _monitor, hours, DateTimeOffset.Now);
         try { _store.Save(_settings); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -248,14 +246,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             var settings = new ToolStripMenuItem { Name = "Settings" };
             settings.Click += (_, _) => ShowSettings();
             _menu.Items.Add(settings);
-            var notificationMenu = new ToolStripMenuItem { Name = "BatteryNotifications" };
-            foreach (var (name, hours) in new[] { ("PauseOneHour", 1), ("PauseEightHours", 8), ("ResumeNotifications", 0) })
-            {
-                var item = new ToolStripMenuItem { Name = name };
-                item.Click += (_, _) => PauseNotifications(hours);
-                notificationMenu.DropDownItems.Add(item);
-            }
-            _menu.Items.Add(notificationMenu);
+            _menu.Items.Add(BatteryNotificationMenu.Create(PauseNotifications));
             _menu.Items.Add(new ToolStripSeparator());
             var exit = new ToolStripMenuItem { Name = "Exit" };
             exit.Click += (_, _) => ExitApplication();
@@ -272,14 +263,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _menu.Items["Settings"]!.Text = I18n.Get(TextId.SettingsMenu);
         _menu.Items["Exit"]!.Text = I18n.Get(TextId.Exit);
         var notifications = (ToolStripMenuItem)_menu.Items["BatteryNotifications"]!;
-        notifications.Text = I18n.Get(TextId.BatteryNotifications);
-        notifications.ToolTipText = _settings.NotificationsPausedUntil > DateTimeOffset.Now
-            ? I18n.Format(TextId.PausedUntil, _settings.NotificationsPausedUntil.Value.ToLocalTime().ToString("g"))
-            : I18n.Get(TextId.NotificationsActive);
-        notifications.Checked = _settings.NotificationsPausedUntil > DateTimeOffset.Now;
-        foreach (ToolStripMenuItem item in notifications.DropDownItems)
-            item.Text = I18n.Get(Enum.Parse<TextId>(item.Name!));
-        notifications.DropDownItems["ResumeNotifications"]!.Enabled = notifications.Checked;
+        BatteryNotificationMenu.Update(notifications, _settings.NotificationsPausedUntil, DateTimeOffset.Now);
         TrayDeviceList.UpdateMenu(_menu, _deviceSeparator, TrayDeviceList.Create(_refreshService.Snapshot, _monitor.State),
             id => FindSettings(id)?.IsEnabled == true);
     }

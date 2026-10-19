@@ -372,8 +372,7 @@ try {
         -PublisherDisplayName $publisherDisplayName `
         -DisplayName $displayName `
         -Version $version `
-        -Architectures @('x64', 'arm64') `
-        -SkipObfuscation
+        -Architectures @('x64', 'arm64')
 
     $makeAppx = Resolve-WindowsSdkTool 'makeappx'
     $makePri = Resolve-WindowsSdkTool 'makepri'
