@@ -4,6 +4,12 @@ internal sealed class SettingsForm : Form
 {
     private readonly DeviceRefreshService _refreshService;
     private readonly bool _ownsRefreshService;
+    private readonly StoreUpdateService _updateService;
+    private readonly bool _ownsUpdateService;
+    private readonly Button _checkUpdates = new() { Name = "CheckUpdates", AutoSize = true };
+    private readonly Button _installUpdate = new() { Name = "InstallUpdate", AutoSize = true };
+    private readonly Label _updateStatus = new() { Name = "UpdateStatus", AutoSize = true, MaximumSize = new Size(520, 0) };
+    private TabControl? _tabs;
     private DeviceSnapshot? _refreshSnapshot;
     private readonly IStartupRegistration _startupRegistration;
     private readonly bool _isOnboarding;
@@ -47,8 +53,11 @@ internal sealed class SettingsForm : Form
         IReadOnlyList<BluetoothBatteryDevice> observedDevices,
         IStartupRegistration startupRegistration,
         bool isOnboarding = false,
-        DeviceRefreshService? refreshService = null)
+        DeviceRefreshService? refreshService = null,
+        StoreUpdateService? updateService = null)
     {
+        _ownsUpdateService = updateService is null;
+        _updateService = updateService ?? new StoreUpdateService(new StoreUpdateProvider());
         _ownsRefreshService = refreshService is null;
         _refreshService = refreshService ?? new DeviceRefreshService(new BluetoothBatteryProvider());
         _startupRegistration = startupRegistration;
@@ -69,6 +78,14 @@ internal sealed class SettingsForm : Form
         ConfigureGeneralSettings(settings);
         ConfigureGrid();
         BuildLayout();
+        _updateService.Changed += ApplyUpdateSnapshot;
+        ApplyUpdateSnapshot(_updateService.Snapshot);
+        // Keep the Store dialog's owner alive until the install request completes.
+        FormClosing += (_, e) =>
+        {
+            if (e.CloseReason == CloseReason.UserClosing && _updateService.Snapshot.State == UpdateState.Installing)
+                e.Cancel = true;
+        };
         RefreshGrid();
         _refreshService.Changed += ApplyRefreshSnapshot;
         if (_refreshService.Snapshot.IsRefreshing || _refreshService.Snapshot.HasResult || _refreshService.Snapshot.Error is not null)
@@ -192,6 +209,7 @@ internal sealed class SettingsForm : Form
         });
 
         var tabs = new TabControl { Dock = DockStyle.Fill, Padding = new Point(16, 6) };
+        _tabs = tabs;
         tabs.TabPages.Add(BuildDevicesTab());
         tabs.TabPages.Add(BuildGeneralTab());
         tabs.TabPages.Add(BuildHelpTab());
@@ -446,7 +464,7 @@ internal sealed class SettingsForm : Form
         {
             Name = "HelpTab", BackColor = Color.White, Padding = new Padding(28, 24, 28, 24), AutoScroll = true
         };
-        var layout = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, RowCount = 3 };
+        var layout = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, RowCount = 4 };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 230));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         AddSectionTitle(layout, 0, I18n.Get(TextId.AppName));
@@ -463,8 +481,49 @@ internal sealed class SettingsForm : Form
         link.Links.Add(0, AppInfo.SupportUrl.Length, AppInfo.SupportUrl);
         link.LinkClicked += (_, _) => OpenExternalLink(AppInfo.SupportUrl);
         AddFormRow(layout, 2, I18n.Get(TextId.SupportSite), link);
+        var updates = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false };
+        _checkUpdates.Text = I18n.Get(TextId.CheckUpdates);
+        _installUpdate.Text = I18n.Get(TextId.InstallUpdate);
+        _checkUpdates.Click += async (_, _) => await _updateService.CheckAsync(Handle);
+        _installUpdate.Click += async (_, _) =>
+        {
+            if (MessageBox.Show(this, I18n.Get(TextId.UpdateConfirmation), I18n.Get(TextId.InstallUpdate),
+                    MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) == DialogResult.OK)
+                await _updateService.InstallAsync(Handle);
+        };
+        updates.Controls.Add(_checkUpdates);
+        updates.Controls.Add(_updateStatus);
+        updates.Controls.Add(_installUpdate);
+        AddFormRow(layout, 3, I18n.Get(TextId.Updates), updates);
         page.Controls.Add(layout);
         return page;
+    }
+
+    internal void ShowUpdatePage()
+    {
+        if (!IsDisposed && _tabs is not null)
+            _tabs.SelectedTab = _tabs.TabPages["HelpTab"];
+    }
+
+    private void ApplyUpdateSnapshot(UpdateSnapshot snapshot)
+    {
+        if (IsDisposed || Disposing) return;
+        var busy = snapshot.State is UpdateState.Checking or UpdateState.Installing;
+        _checkUpdates.Enabled = !busy && snapshot.State != UpdateState.Unsupported;
+        _installUpdate.Visible = snapshot.CanInstall;
+        _installUpdate.Enabled = !busy;
+        _updateStatus.Text = snapshot.State switch
+        {
+            UpdateState.Checking => I18n.Get(TextId.UpdateChecking),
+            UpdateState.Available => I18n.Get(TextId.UpdateAvailable),
+            UpdateState.Current => I18n.Get(TextId.UpdateCurrent),
+            UpdateState.Installing => I18n.Format(TextId.UpdateInstalling, (int)(snapshot.Progress * 100)),
+            UpdateState.Completed => I18n.Get(TextId.UpdateCompleted),
+            UpdateState.Canceled => I18n.Get(TextId.UpdateCanceled),
+            UpdateState.Failed => I18n.Get(TextId.UpdateFailed),
+            UpdateState.Unsupported => I18n.Get(TextId.UpdateUnsupported),
+            _ => string.Empty
+        };
     }
 
     private void ConfigureStartupControls()
@@ -796,6 +855,8 @@ internal sealed class SettingsForm : Form
     {
         if (disposing)
         {
+            _updateService.Changed -= ApplyUpdateSnapshot;
+            if (_ownsUpdateService) _updateService.Dispose();
             _refreshService.Changed -= ApplyRefreshSnapshot;
             if (_ownsRefreshService)
                 _refreshService.Dispose();

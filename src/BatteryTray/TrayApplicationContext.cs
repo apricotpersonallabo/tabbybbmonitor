@@ -10,6 +10,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly ToolStripSeparator _deviceSeparator = new();
     private readonly TrayTooltipController _tooltip;
     private readonly IStartupRegistration _startupRegistration = new StartupRegistration();
+    private readonly StoreUpdateService _updateService;
+    private bool _updateBalloonVisible;
     private readonly Dictionary<string, BatteryBand> _previousBands = new(StringComparer.OrdinalIgnoreCase);
     private readonly Control _dispatcher = new();
     private readonly RegisteredWaitHandle _activationRegistration;
@@ -26,6 +28,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     public TrayApplicationContext(SingleInstanceCoordinator instance, bool isStartupTask = false)
     {
         _isStartupTask = isStartupTask;
+        _updateService = new(new StoreUpdateProvider(), _dispatcher.Handle);
         _loadResult = _store.Load();
         _settings = _loadResult.Settings;
         I18n.SetLanguage(_settings.UiLanguage);
@@ -41,6 +44,15 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _notifyIcon.MouseMove += (_, _) => _tooltip.ObserveMouse();
         _notifyIcon.MouseDown += (_, _) => _tooltip.Dismiss();
         _notifyIcon.DoubleClick += (_, _) => ShowSettings();
+        _notifyIcon.BalloonTipClicked += (_, _) =>
+        {
+            if (_updateBalloonVisible)
+            {
+                _updateBalloonVisible = false;
+                ShowSettings(showUpdates: true);
+            }
+        };
+        _notifyIcon.BalloonTipClosed += (_, _) => _updateBalloonVisible = false;
         _refreshService.Changed += SnapshotChanged;
 
         _timer.Tick += async (_, _) => await RefreshAsync(showErrors: false);
@@ -58,6 +70,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private void InitialIdle(object? sender, EventArgs e)
     {
         Application.Idle -= InitialIdle;
+        _ = CheckForUpdatesAtStartupAsync();
         if (!_settings.OnboardingCompleted)
         {
             ShowSettings(isOnboarding: true);
@@ -69,6 +82,15 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _ = RefreshAsync(showErrors: true);
         if (LaunchMode.ShouldShowSettings(_settings.OnboardingCompleted, _isStartupTask))
             ShowSettings();
+    }
+
+    private async Task CheckForUpdatesAtStartupAsync()
+    {
+        var snapshot = await _updateService.CheckAtStartupAsync(_dispatcher.Handle);
+        if (_isExiting || snapshot.State != UpdateState.Available) return;
+        _updateBalloonVisible = true;
+        _notifyIcon.ShowBalloonTip(7000, I18n.Get(TextId.Updates),
+            I18n.Get(TextId.UpdateAvailable), ToolTipIcon.Info);
     }
 
     private void ActivateFromSecondaryInstance()
@@ -96,7 +118,10 @@ internal sealed class TrayApplicationContext : ApplicationContext
             _ => null
         };
         if (message is not null)
+        {
+            _updateBalloonVisible = false;
             _notifyIcon.ShowBalloonTip(7000, I18n.Get(TextId.SettingsError), message, ToolTipIcon.Warning);
+        }
     }
 
     private async Task RefreshAsync(bool showErrors)
@@ -106,6 +131,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         var snapshot = await _refreshService.RefreshAsync();
         if (!_isExiting && showErrors && snapshot.Error is not null)
         {
+            _updateBalloonVisible = false;
             _notifyIcon.ShowBalloonTip(5000, I18n.Get(TextId.BatteryInfoUnavailableTitle),
                 snapshot.Error, ToolTipIcon.Warning);
         }
@@ -191,6 +217,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
         var direction = I18n.Get(current < previous ? TextId.DirectionDecreased : TextId.DirectionRecovered);
         var icon = current <= BatteryBand.Low ? ToolTipIcon.Warning : ToolTipIcon.Info;
+        _updateBalloonVisible = false;
         _notifyIcon.ShowBalloonTip(
             7000,
             I18n.Format(TextId.TransitionTitle, device.Name, direction),
@@ -234,7 +261,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             id => FindSettings(id)?.IsEnabled == true);
     }
 
-    private void ShowSettings(bool isOnboarding = false)
+    private void ShowSettings(bool isOnboarding = false, bool showUpdates = false)
     {
         if (_isExiting)
             return;
@@ -243,6 +270,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
         if (_settingsForm is { IsDisposed: false })
         {
+            if (showUpdates) _settingsForm.ShowUpdatePage();
             if (_settingsForm.WindowState == FormWindowState.Minimized)
                 _settingsForm.WindowState = FormWindowState.Normal;
             _settingsForm.Activate();
@@ -252,8 +280,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
 
         isOnboarding |= !_settings.OnboardingCompleted;
-        using var form = new SettingsForm(_settings, _devices, _startupRegistration, isOnboarding, _refreshService);
+        using var form = new SettingsForm(_settings, _devices, _startupRegistration, isOnboarding, _refreshService, _updateService);
         _settingsForm = form;
+        if (showUpdates) form.ShowUpdatePage();
         try
         {
             if (form.ShowDialog() != DialogResult.OK)
@@ -312,6 +341,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         if (_isExiting)
             return;
         _isExiting = true;
+        _updateService.Dispose();
         Application.Idle -= InitialIdle;
         _refreshService.Changed -= SnapshotChanged;
         _refreshService.Dispose();

@@ -16,6 +16,9 @@ public sealed class LocalizationTests
             Assert.False(string.IsNullOrWhiteSpace(I18n.Get(TextId.HelpTab)));
             Assert.False(string.IsNullOrWhiteSpace(I18n.Get(TextId.AppVersion)));
             Assert.False(string.IsNullOrWhiteSpace(I18n.Get(TextId.SupportSite)));
+            foreach (var id in Enum.GetValues<TextId>().Where(id => id >= TextId.Updates))
+                Assert.False(string.IsNullOrWhiteSpace(I18n.Get(id)));
+            Assert.Contains("42", I18n.Format(TextId.UpdateInstalling, 42));
         }
 
         I18n.SetLanguage("system");

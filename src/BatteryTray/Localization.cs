@@ -85,7 +85,19 @@ internal enum TextId
     SupportSite,
     AutoStartup,
     Enabled,
-    StartupNotSupported
+    StartupNotSupported,
+    Updates,
+    CheckUpdates,
+    InstallUpdate,
+    UpdateChecking,
+    UpdateAvailable,
+    UpdateCurrent,
+    UpdateInstalling,
+    UpdateCompleted,
+    UpdateCanceled,
+    UpdateFailed,
+    UpdateUnsupported,
+    UpdateConfirmation
 }
 
 internal static partial class I18n
@@ -187,6 +199,8 @@ internal static partial class I18n
 
     public static string Get(TextId id)
     {
+        if (id >= TextId.Updates)
+            return UpdateTranslations[CurrentLanguage][(int)id - (int)TextId.Updates];
         if (id == TextId.StartupNotSupported)
             return StartupUnsupportedText[CurrentLanguage];
         if (id is TextId.AutoStartup or TextId.Enabled)
