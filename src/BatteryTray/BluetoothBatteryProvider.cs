@@ -10,7 +10,6 @@ internal interface IBluetoothBatteryProvider
 
 internal sealed class BluetoothBatteryProvider : IBluetoothBatteryProvider
 {
-    private const string BluetoothProtocol = "{e0cbf06c-cd8b-4647-bb8a-263b43f0f974}";
     private const string BluetoothBatteryLevelProperty = "{104EA319-6EE2-4701-BD47-8DDBF425BBE5} 2";
     private const string DeviceIsPresentProperty = "{83DA6326-97A6-4088-9453-A1923F573B29} 15";
 
@@ -61,9 +60,12 @@ internal sealed class BluetoothBatteryProvider : IBluetoothBatteryProvider
         if (results.Length == 0 && errors.Length == queries.Length)
             throw new AggregateException(I18n.Get(TextId.BluetoothEnumerationFailed), errors);
 
+        var batteryLevels = GetContainerBatteryLevels(results.Select(device => device.Properties));
         return results
+            // プロファイルノードは残量の補完にだけ使い、別の機器として表示しない。
+            .Where(device => device.Kind != DeviceInformationKind.Device || IsPhysicalBluetoothDeviceId(device.Id))
             .Where(device => !string.IsNullOrWhiteSpace(device.Name))
-            .Select(device => Map(device, connectedIds))
+            .Select(device => Map(device, connectedIds, batteryLevels))
             .GroupBy(device => device.Id, StringComparer.OrdinalIgnoreCase)
             .Select(Merge)
             .OrderBy(device => device.Name, StringComparer.CurrentCultureIgnoreCase)
@@ -76,15 +78,44 @@ internal sealed class BluetoothBatteryProvider : IBluetoothBatteryProvider
     private static async Task<IReadOnlyList<DeviceInformation>> FindBluetoothDeviceNodesAsync()
     {
         var found = await DeviceInformation.FindAllAsync(
-            $"System.Devices.ClassGuid:=\"{BluetoothProtocol}\"",
+            "",
             RequestedProperties,
             DeviceInformationKind.Device);
 
         return found
-            .Where(device => IsPhysicalBluetoothDeviceId(device.Id))
-            .Where(device => ReadBoolean(device.Properties, DeviceIsPresentProperty) != false)
+            // HFPの残量はBluetoothクラスではなくSystemクラスのサービスノードにある。
+            .Where(device => (IsPhysicalBluetoothDeviceId(device.Id) &&
+                ReadBoolean(device.Properties, DeviceIsPresentProperty) != false) ||
+                IsBluetoothBatterySource(device.Id, device.Properties))
             .ToArray();
     }
+
+    internal static bool IsBluetoothBatterySource(string id, IReadOnlyDictionary<string, object> properties) =>
+        // 音楽再生中はHFPノードのIsPresentがfalseでもWindowsはその残量を表示する。
+        // 接続判定は本体側で行い、プロファイルの存在状態で残量を捨てない。
+        (id.StartsWith("BTHENUM\\", StringComparison.OrdinalIgnoreCase) ||
+         id.StartsWith("BTHLE\\", StringComparison.OrdinalIgnoreCase) ||
+         id.StartsWith("BTHHFENUM\\", StringComparison.OrdinalIgnoreCase)) &&
+        ReadPercentage(properties, BluetoothBatteryLevelProperty).HasValue;
+
+    internal static IReadOnlyDictionary<Guid, int> GetContainerBatteryLevels(
+        IEnumerable<IReadOnlyDictionary<string, object>> sources) =>
+        sources
+            .Select(properties => (Container: ReadContainerId(properties),
+                Level: ReadPercentage(properties, BluetoothBatteryLevelProperty)))
+            .Where(source => source.Container.HasValue && source.Level.HasValue)
+            .GroupBy(source => source.Container!.Value)
+            .ToDictionary(group => group.Key, group => group.First().Level!.Value);
+
+    internal static int? ResolveBatteryLevel(IReadOnlyDictionary<string, object> properties,
+        IReadOnlyDictionary<Guid, int> containerLevels) =>
+        ReadPercentage(properties, BluetoothBatteryLevelProperty) ??
+        (ReadContainerId(properties) is { } container && containerLevels.TryGetValue(container, out var level)
+            ? level : null);
+
+    private static Guid? ReadContainerId(IReadOnlyDictionary<string, object> properties) =>
+        Guid.TryParse(ReadString(properties, "System.Devices.ContainerId"), out var container) && container != Guid.Empty
+            ? container : null;
 
     private static bool IsPhysicalBluetoothDeviceId(string id) =>
         id.StartsWith("BTHLE\\DEV_", StringComparison.OrdinalIgnoreCase) ||
@@ -104,9 +135,10 @@ internal sealed class BluetoothBatteryProvider : IBluetoothBatteryProvider
         }
     }
 
-    private static BluetoothBatteryDevice Map(DeviceInformation device, IReadOnlySet<string> connectedIds)
+    private static BluetoothBatteryDevice Map(DeviceInformation device, IReadOnlySet<string> connectedIds,
+        IReadOnlyDictionary<Guid, int> batteryLevels)
     {
-        var level = ReadPercentage(device.Properties, BluetoothBatteryLevelProperty);
+        var level = ResolveBatteryLevel(device.Properties, batteryLevels);
         var connected = ResolveConnection(device.Id, device.Properties, connectedIds);
         // AEP IDはデバイスインターフェイスとPnPノードの両方に現れるため、
         // ContainerIdより優先すると異なる列挙経路の同一機器を統合できる。
