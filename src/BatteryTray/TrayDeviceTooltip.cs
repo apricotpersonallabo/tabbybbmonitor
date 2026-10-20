@@ -86,11 +86,14 @@ internal sealed class TrayDeviceTooltip : Form
         RefreshTheme();
         _anchor = anchor;
         SetLines(lines);
-        Show();
+        if (lines.Count > 0)
+            Show();
     }
 
     public void SetLines(IReadOnlyList<TrayDeviceLine> lines)
     {
+        if (lines.Count == 0)
+            Hide();
         var workingArea = Screen.FromPoint(_anchor).WorkingArea;
         var width = Math.Min(600, Math.Max(180, workingArea.Width - 24));
         var desired = lines.Select(line => TextRenderer.MeasureText(line.Text, Font).Width + 40).DefaultIfEmpty(240).Max();

@@ -8,17 +8,18 @@ internal static class Program
         if (args.Contains("--startup-smoke-test", StringComparer.Ordinal))
             return StartupSmokeTest.Run(ApplicationConfiguration.Initialize, Console.Out, Console.Error);
 
-        var isStartupTask = LaunchMode.IsStartupTask();
+        var isBackgroundLaunch = LaunchMode.IsStartupTask() || LaunchMode.IsUpdateRestart(args);
         using var instance = new SingleInstanceCoordinator();
         if (!instance.IsPrimary)
         {
-            if (!isStartupTask)
+            if (!isBackgroundLaunch)
                 instance.RequestActivation();
             return 0;
         }
 
         ApplicationConfiguration.Initialize();
-        Application.Run(new TrayApplicationContext(instance, isStartupTask));
+        UpdateRestartRegistration.Create().TryRegisterAtStartup();
+        Application.Run(new TrayApplicationContext(instance, isBackgroundLaunch));
         return 0;
     }
 }

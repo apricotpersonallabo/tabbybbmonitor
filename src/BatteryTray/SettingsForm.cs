@@ -74,7 +74,8 @@ internal sealed class SettingsForm : Form
         RightToLeftLayout = I18n.IsRightToLeft;
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(900, 560);
-        Size = new Size(1040, 650);
+        var workingArea = Screen.FromPoint(Cursor.Position).WorkingArea;
+        Size = new Size(Math.Min(1200, workingArea.Width), Math.Min(800, workingArea.Height));
         ShowInTaskbar = true;
         Font = SystemFonts.MessageBoxFont;
         BackColor = Color.FromArgb(247, 248, 250);
@@ -91,7 +92,7 @@ internal sealed class SettingsForm : Form
         // Keep the Store dialog's owner alive until the install request completes.
         FormClosing += (_, e) =>
         {
-            if (e.CloseReason == CloseReason.UserClosing && _updateService.Snapshot.State == UpdateState.Installing)
+            if (e.CloseReason == CloseReason.UserClosing && _updateService.Snapshot.State is UpdateState.Preparing or UpdateState.Installing)
                 e.Cancel = true;
         };
         RefreshGrid();
@@ -396,7 +397,7 @@ internal sealed class SettingsForm : Form
         var thresholds = new TableLayoutPanel { Size = new Size(320, 114), ColumnCount = 3, RowCount = 3 };
         thresholds.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 18));
         thresholds.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        thresholds.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 92));
+        thresholds.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         AddThresholdRow(thresholds, 0, Color.FromArgb(220, 45, 45), I18n.Get(TextId.CriticalAtOrBelow), _critical);
         AddThresholdRow(thresholds, 1, Color.FromArgb(239, 122, 22), I18n.Get(TextId.LowAtOrBelow), _low);
         AddThresholdRow(thresholds, 2, Color.FromArgb(35, 126, 214), I18n.Get(TextId.CautionAtOrBelow), _caution);
@@ -477,7 +478,7 @@ internal sealed class SettingsForm : Form
 
     private TabPage BuildGeneralTab()
     {
-        var page = new TabPage(I18n.Get(TextId.GeneralTab)) { BackColor = Color.White, Padding = new Padding(28, 24, 28, 24) };
+        var page = new TabPage(I18n.Get(TextId.GeneralTab)) { BackColor = Color.White, Padding = new Padding(28, 24, 28, 24), AutoScroll = true };
         var form = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, RowCount = 10 };
         form.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 230));
         form.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -555,7 +556,7 @@ internal sealed class SettingsForm : Form
     private void ApplyUpdateSnapshot(UpdateSnapshot snapshot)
     {
         if (IsDisposed || Disposing) return;
-        var busy = snapshot.State is UpdateState.Checking or UpdateState.Installing;
+        var busy = snapshot.State is UpdateState.Checking or UpdateState.Preparing or UpdateState.Installing;
         _checkUpdates.Enabled = !busy && snapshot.State != UpdateState.Unsupported;
         _installUpdate.Visible = snapshot.CanInstall;
         _installUpdate.Enabled = !busy;
@@ -564,6 +565,7 @@ internal sealed class SettingsForm : Form
             UpdateState.Checking => I18n.Get(TextId.UpdateChecking),
             UpdateState.Available => I18n.Get(TextId.UpdateAvailable),
             UpdateState.Current => I18n.Get(TextId.UpdateCurrent),
+            UpdateState.Preparing => I18n.Get(TextId.UpdatePreparing),
             UpdateState.Installing => I18n.Format(TextId.UpdateInstalling, (int)(snapshot.Progress * 100)),
             UpdateState.Completed => I18n.Get(TextId.UpdateCompleted),
             UpdateState.Canceled => I18n.Get(TextId.UpdateCanceled),
@@ -962,7 +964,7 @@ internal sealed class SettingsForm : Form
 
     private static Control BuildUnitInput(Control input, string unit)
     {
-        var panel = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = Padding.Empty };
+        var panel = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, Margin = Padding.Empty };
         panel.Controls.Add(input);
         panel.Controls.Add(new Label { Text = unit, AutoSize = true, Margin = new Padding(4, 6, 0, 0) });
         return panel;

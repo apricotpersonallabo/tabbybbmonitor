@@ -25,11 +25,11 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
 
     private bool _isExiting;
-    private readonly bool _isStartupTask;
+    private readonly bool _isBackgroundLaunch;
 
-    public TrayApplicationContext(SingleInstanceCoordinator instance, bool isStartupTask = false)
+    public TrayApplicationContext(SingleInstanceCoordinator instance, bool isBackgroundLaunch = false)
     {
-        _isStartupTask = isStartupTask;
+        _isBackgroundLaunch = isBackgroundLaunch;
         _updateService = new(new StoreUpdateProvider(), _dispatcher.Handle);
         _loadResult = _store.Load();
         _settings = _loadResult.Settings;
@@ -83,7 +83,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _timer.Start();
         ShowSettingsLoadWarning();
         _ = RefreshAsync(showErrors: true);
-        if (LaunchMode.ShouldShowSettings(_settings.OnboardingCompleted, _isStartupTask))
+        if (LaunchMode.ShouldShowSettings(_settings.OnboardingCompleted, _isBackgroundLaunch))
             ShowSettings();
     }
 

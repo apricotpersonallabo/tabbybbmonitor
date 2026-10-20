@@ -25,11 +25,14 @@ public sealed class TrayPopupTests
         menu.Show(new Point(50, 50));
         Assert.Equal(1, provider.Calls);
         Assert.True(menu.Visible);
-        Assert.Equal(I18n.Get(TextId.Discovering), menu.Items[0].Text);
+        Assert.Same(separator, menu.Items[0]);
+        Assert.False(separator.Visible);
+        Assert.True(command.Available);
         provider.Complete([new("mouse", "Mouse", 79, true)]);
         PumpUntil(() => !service.Snapshot.IsRefreshing);
         Assert.True(menu.Visible);
         Assert.Equal("Mouse  79%", menu.Items[0].Text);
+        Assert.True(separator.Visible);
         Assert.True(((ToolStripMenuItem)menu.Items[0]).Checked);
         Assert.Same(command, menu.Items[^1]);
         var pending = service.RefreshAsync();
@@ -61,11 +64,15 @@ public sealed class TrayPopupTests
         popup.SetLines([new("mouse", "Mouse  79%")]);
         Assert.False(popup.Visible);
         popup.ShowAt(anchor,
-        [new("mouse", "Bluetooth mouse  79%"), new("keyboard", "Bluetooth keyboard  60%"), new(null, I18n.Get(TextId.Discovering))]);
+        [new("mouse", "Bluetooth mouse  79%"), new("keyboard", "Bluetooth keyboard  60%")]);
         using var bitmap = new Bitmap(popup.Width, popup.Height);
         popup.DrawToBitmap(bitmap, new Rectangle(Point.Empty, popup.Size));
         if (Environment.GetEnvironmentVariable("TABBY_LAYOUT_OUTPUT_DIR") is { } output)
             bitmap.Save(Path.Combine(output, "TabbyBBMonitor-tooltip.png"));
+        popup.SetLines([]);
+        Assert.False(popup.Visible);
+        popup.ShowAt(anchor, []);
+        Assert.False(popup.Visible);
     });
 
     [Fact]

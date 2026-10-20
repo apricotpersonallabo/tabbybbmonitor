@@ -3,13 +3,14 @@ using Windows.Services.Store;
 
 namespace BatteryTray;
 
-internal enum UpdateState { Idle, Checking, Available, Current, Installing, Completed, Canceled, Failed, Unsupported }
+internal enum UpdateState { Idle, Checking, Available, Current, Preparing, Installing, Completed, Canceled, Failed, Unsupported }
 internal sealed record UpdateSnapshot(UpdateState State = UpdateState.Idle, double Progress = 0, bool CanInstall = false);
 internal enum UpdateInstallResult { Completed, Canceled, Failed }
 
 internal interface IStoreUpdateProvider
 {
     Task<bool?> CheckAsync(nint owner, CancellationToken cancellationToken);
+    Task PrepareForInstallAsync(CancellationToken cancellationToken);
     Task<UpdateInstallResult> InstallAsync(nint owner, IProgress<double> progress, CancellationToken cancellationToken);
 }
 
@@ -41,15 +42,19 @@ internal sealed class StoreUpdateService(IStoreUpdateProvider provider, nint che
     {
         try
         {
-            Publish(new(install ? UpdateState.Installing : UpdateState.Checking, CanInstall: install));
+            var cancellationToken = _cancellation.Token;
+            Publish(new(install ? UpdateState.Preparing : UpdateState.Checking, CanInstall: install));
             if (install)
             {
+                await provider.PrepareForInstallAsync(cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+                Publish(new(UpdateState.Installing, CanInstall: true));
                 var progress = new Progress<double>(value =>
                 {
                     if (!_disposed && Snapshot.State == UpdateState.Installing)
                         Publish(Snapshot with { Progress = Math.Clamp(value, 0, 1) });
                 });
-                var result = await provider.InstallAsync(owner, progress, _cancellation.Token);
+                var result = await provider.InstallAsync(owner, progress, cancellationToken);
                 Publish(new(result switch
                 {
                     UpdateInstallResult.Completed => UpdateState.Completed,
@@ -59,7 +64,7 @@ internal sealed class StoreUpdateService(IStoreUpdateProvider provider, nint che
             }
             else
             {
-                var available = await provider.CheckAsync(checkOwner != 0 ? checkOwner : owner, _cancellation.Token);
+                var available = await provider.CheckAsync(checkOwner != 0 ? checkOwner : owner, cancellationToken);
                 Publish(new(available switch { true => UpdateState.Available, false => UpdateState.Current, null => UpdateState.Unsupported },
                     CanInstall: available == true));
             }
@@ -93,6 +98,9 @@ internal sealed class StoreUpdateService(IStoreUpdateProvider provider, nint che
 internal sealed class StoreUpdateProvider : IStoreUpdateProvider
 {
     private IReadOnlyList<StorePackageUpdate> _updates = [];
+
+    public Task PrepareForInstallAsync(CancellationToken cancellationToken) =>
+        UpdateRestartRegistration.Create().PrepareAsync(cancellationToken);
 
     private static StoreContext CreateContext(nint owner)
     {

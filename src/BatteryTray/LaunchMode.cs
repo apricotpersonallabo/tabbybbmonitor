@@ -6,6 +6,9 @@ namespace BatteryTray;
 
 internal static class LaunchMode
 {
+    internal static bool IsUpdateRestart(IEnumerable<string> args) =>
+        args.Contains(UpdateRestartRegistration.RestartArgument, StringComparer.Ordinal);
+
     public static bool IsStartupTask() => IsStartupTask(() => AppInstance.GetActivatedEventArgs()?.Kind);
 
     internal static bool IsStartupTask(Func<ActivationKind?> readKind)
@@ -17,6 +20,6 @@ internal static class LaunchMode
         }
     }
 
-    internal static bool ShouldShowSettings(bool onboardingCompleted, bool isStartupTask) =>
-        !onboardingCompleted || !isStartupTask;
+    internal static bool ShouldShowSettings(bool onboardingCompleted, bool isBackgroundLaunch) =>
+        !onboardingCompleted || !isBackgroundLaunch;
 }

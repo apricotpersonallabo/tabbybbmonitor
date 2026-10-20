@@ -98,6 +98,7 @@ internal enum TextId
     UpdateFailed,
     UpdateUnsupported,
     UpdateConfirmation,
+    UpdatePreparing,
     BatteryNotifications,
     AllTransitions,
     CriticalOnly,

@@ -32,19 +32,18 @@ public sealed class TrayPresentationTests
     }
 
     [Fact]
-    public void InitialRefreshAndEmptyResultHaveDistinctMessages()
+    public void InitialRefreshHasNoStatusAndCompletedEmptyResultIsExplained()
     {
-        Assert.Equal(I18n.Get(TextId.Discovering), Assert.Single(TrayDeviceList.Create(new([], false, true, null))).Text);
+        Assert.Empty(TrayDeviceList.Create(new([], false, true, null)));
         Assert.Equal(I18n.Get(TextId.NoBluetoothDevices), Assert.Single(TrayDeviceList.Create(new([], true, false, null))).Text);
     }
 
     [Fact]
-    public void PreviousDevicesRemainAlongsideBusyOrErrorStatus()
+    public void RefreshKeepsPreviousDevicesWithoutBusyStatusAndPreservesErrors()
     {
         BluetoothBatteryDevice[] devices = [new("mouse", "Mouse", 50, true)];
         var busy = TrayDeviceList.Create(new(devices, true, true, null));
-        Assert.Equal("Mouse  50%", busy[0].Text);
-        Assert.Equal(I18n.Get(TextId.Discovering), busy[1].Text);
+        Assert.Equal("Mouse  50%", Assert.Single(busy).Text);
         var failed = TrayDeviceList.Create(new(devices, true, false, "Offline"));
         Assert.Equal(busy[0], failed[0]);
         Assert.Contains("Offline", failed[1].Text);

@@ -71,6 +71,40 @@ public sealed class StoreUpdateServiceTests
     }
 
     [Fact]
+    public async Task PreparationCompletesBeforeInstallAndRegistrationFailureAllowsRetry()
+    {
+        var ready = new TaskCompletionSource();
+        var provider = new FakeProvider { Prepare = _ => ready.Task };
+        using var service = new StoreUpdateService(provider);
+        await service.CheckAsync(1);
+        var pending = service.InstallAsync(1);
+        Assert.Equal(UpdateState.Preparing, service.Snapshot.State);
+        Assert.Equal(0, provider.InstallCalls);
+        Assert.Same(pending, service.InstallAsync(1));
+        ready.SetException(new System.Runtime.InteropServices.COMException());
+        Assert.Equal(UpdateState.Failed, (await pending).State);
+        Assert.True(service.Snapshot.CanInstall);
+        Assert.Equal(0, provider.InstallCalls);
+        provider.Prepare = _ => Task.CompletedTask;
+        Assert.Equal(UpdateState.Completed, (await service.InstallAsync(1)).State);
+        Assert.Equal(1, provider.InstallCalls);
+    }
+
+    [Fact]
+    public async Task ExitDuringPreparationDoesNotStartInstall()
+    {
+        var ready = new TaskCompletionSource();
+        var provider = new FakeProvider { Prepare = _ => ready.Task };
+        var service = new StoreUpdateService(provider);
+        await service.CheckAsync(1);
+        var pending = service.InstallAsync(1);
+        service.Dispose();
+        ready.SetResult();
+        await pending;
+        Assert.Equal(0, provider.InstallCalls);
+    }
+
+    [Fact]
     public async Task UnpackagedExecutionIsUnsupportedWithoutContactingStore()
     {
         Assert.Null(await new StoreUpdateProvider().CheckAsync(0, CancellationToken.None));
@@ -107,6 +141,8 @@ public sealed class StoreUpdateServiceTests
 
     internal sealed class FakeProvider : IStoreUpdateProvider
     {
+        public Func<CancellationToken, Task> Prepare { get; set; } = _ => Task.CompletedTask;
+        public Task PrepareForInstallAsync(CancellationToken cancellationToken) => Prepare(cancellationToken);
         public Func<CancellationToken, Task<bool?>> Check { get; set; } = _ => Task.FromResult<bool?>(true);
         public Func<IProgress<double>, CancellationToken, Task<UpdateInstallResult>> Install { get; set; } =
             (_, _) => Task.FromResult(UpdateInstallResult.Completed);

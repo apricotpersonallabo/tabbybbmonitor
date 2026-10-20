@@ -341,6 +341,16 @@ public sealed class SettingsDeviceVisibilityTests
             var split = Assert.IsType<SplitContainer>(details.Parent!.Parent);
             Assert.True(split.Right <= split.Parent!.ClientSize.Width,
                 $"Details pane must fit: split={split.Bounds}, layout={split.Parent.ClientSize}");
+            foreach (var name in new[] { "_critical", "_low", "_caution" })
+            {
+                var input = Field<NumericUpDown>(form, name);
+                var unitPanel = input.Parent!;
+                var percent = Assert.Single(unitPanel.Controls.OfType<Label>(), label => label.Text == "%");
+                Assert.True(unitPanel.ClientRectangle.Contains(percent.Bounds),
+                    $"Percent sign must fit beside {name}: panel={unitPanel.ClientSize}, label={percent.Bounds}");
+                Assert.True(unitPanel.Parent!.ClientRectangle.Contains(unitPanel.Bounds),
+                    $"Threshold input and percent must fit in their table: panel={unitPanel.Bounds}");
+            }
             using var bitmap = new System.Drawing.Bitmap(form.Width, form.Height);
             form.DrawToBitmap(bitmap, new System.Drawing.Rectangle(System.Drawing.Point.Empty, form.Size));
             if (Environment.GetEnvironmentVariable("TABBY_LAYOUT_OUTPUT_DIR") is { } output)

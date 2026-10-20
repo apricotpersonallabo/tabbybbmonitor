@@ -36,11 +36,13 @@ public sealed class UpdateUiTests
     public void CheckButtonCoalescesRequestsAndInstallProgressKeepsOwnerAlive() => RunSta(() =>
     {
         var checkCompletion = new TaskCompletionSource<bool?>();
+        var prepared = new TaskCompletionSource();
         var installCompletion = new TaskCompletionSource<UpdateInstallResult>();
         IProgress<double>? progress = null;
         var provider = new StoreUpdateServiceTests.FakeProvider
         {
             Check = _ => checkCompletion.Task,
+            Prepare = _ => prepared.Task,
             Install = (reporter, _) => { progress = reporter; return installCompletion.Task; }
         };
         using var service = new StoreUpdateService(provider);
@@ -60,6 +62,13 @@ public sealed class UpdateUiTests
         PumpUntil(() => service.Snapshot.State == UpdateState.Available);
         var install = service.InstallAsync(form.Handle);
         Assert.Same(install, service.InstallAsync(form.Handle));
+        Assert.Equal(UpdateState.Preparing, service.Snapshot.State);
+        Assert.Equal(I18n.Get(TextId.UpdatePreparing), Field<Label>(form, "_updateStatus").Text);
+        Assert.Equal(0, provider.InstallCalls);
+        form.Close();
+        Assert.False(form.IsDisposed);
+        prepared.SetResult();
+        PumpUntil(() => service.Snapshot.State == UpdateState.Installing);
         progress!.Report(0.42);
         PumpUntil(() => Field<Label>(form, "_updateStatus").Text.Contains("42"));
         Assert.False(check.Enabled);

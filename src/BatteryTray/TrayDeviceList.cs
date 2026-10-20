@@ -25,6 +25,7 @@ internal static class TrayDeviceList
                     Checked = line.DeviceId is not null && isMonitored(line.DeviceId)
                 });
             }
+            separator.Visible = lines.Count > 0;
         }
         finally { menu.ResumeLayout(); }
     }
@@ -40,8 +41,6 @@ internal static class TrayDeviceList
             .ToList();
         if (lines.Count == 0 && (snapshot.HasResult || !snapshot.IsRefreshing && snapshot.Error is null))
             lines.Add(new(null, I18n.Get(TextId.NoBluetoothDevices)));
-        if (snapshot.IsRefreshing)
-            lines.Add(new(null, I18n.Get(TextId.Discovering)));
         if (snapshot.Error is not null)
             lines.Add(new(null, $"{I18n.Get(TextId.FetchError)}: {snapshot.Error}"));
         return lines;
